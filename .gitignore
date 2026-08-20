@@ -1,0 +1,18 @@
+node_modules
+
+# compiled output
+backend/dist
+backend/build
+
+# OS
+.DS_Store
+
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# temp directory
+.temp
+.tmp
