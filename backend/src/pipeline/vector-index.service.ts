@@ -39,7 +39,13 @@ export class VectorIndexService implements OnModuleInit, OnModuleDestroy {
       'ELASTICSEARCH_NODE',
       'http://localhost:9200',
     );
-    this.es = new Client({ node });
+    this.es = new Client({
+      node,
+      auth: {
+        username: 'elastic',
+        password: this.config.get('ELASTICSEARCH_PASSWORD') as string,
+      },
+    });
     try {
       const health = await this.es.cluster.health();
       this.logger.log(
