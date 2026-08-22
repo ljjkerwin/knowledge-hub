@@ -171,7 +171,7 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
         totalEntities += written;
       }
 
-      this.logger.log(
+      this.logger.debug(
         `KG 图谱构建完成：documentId=${doc.id}, chunks=${chunks.length}, entities=${totalEntities}`,
       );
       return totalEntities;

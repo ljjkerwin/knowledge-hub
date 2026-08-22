@@ -19,7 +19,7 @@ import { ExtractionResult } from './types/pipeline.types';
  * <p>供 KG 建图使用：从每个 chunk 抽「实体 + 关系」，再写入 Neo4j。</p>
  * <p>ChatOpenAI.withStructuredOutput，不指定 method：qwen-plus 默认 jsonSchema。</p>
  *
- * <p>环境变量：OPENAI_API_KEY / OPENAI_BASE_URL / MODEL_NAME / KG_MAX_ENTITIES / KG_MAX_RELATIONS / KG_LLM_TIMEOUT_MS</p>
+ * <p>环境变量：OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL_NAME / KG_MAX_ENTITIES / KG_MAX_RELATIONS / KG_LLM_TIMEOUT_MS</p>
  */
 @Injectable()
 export class ExtractionService {
@@ -48,13 +48,13 @@ export class ExtractionService {
       config.get<string>('LLM_BASE_URL') ||
       'https://dashscope.aliyuncs.com/compatible-mode/v1';
     const model =
-      config.get<string>('MODEL_NAME') ||
+      config.get<string>('OPENAI_MODEL_NAME') ||
       config.get<string>('LLM_MODEL') ||
       'qwen-plus';
     const timeout = Number(config.get('KG_LLM_TIMEOUT_MS', 60000));
     const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : 60000;
 
-    const llm = new ChatOpenAI({
+    const conf = {
       apiKey,
       model,
       temperature: 0.1,
@@ -63,7 +63,9 @@ export class ExtractionService {
       // DashScope 走 Chat Completions，不要切 OpenAI Responses API
       useResponsesApi: false,
       configuration: { baseURL: baseUrl },
-    });
+    }
+    // console.log(conf)
+    const llm = new ChatOpenAI(conf);
 
     this.structuredLlm = llm.withStructuredOutput(kgExtractionResultSchema, {
       name: 'extract_knowledge_graph',
@@ -109,10 +111,12 @@ export class ExtractionService {
     const user = `文档标题: ${documentTitle}\n章节: ${heading ?? '无'}\n\n内容:\n${content.slice(0, 4000)}`;
 
     const started = Date.now();
+
     const parsed = await this.structuredLlm.invoke([
       new SystemMessage(system),
       new HumanMessage(user),
     ]);
+
     this.logger.log(
       `KG 抽取完成：title=${documentTitle}, elapsed=${Date.now() - started}ms, chars=${content.length}, entities=${parsed.entities?.length ?? 0}`,
     );

@@ -37,8 +37,11 @@ export class DocumentPipelinePublisher {
    */
   async afterPublish(document: DocumentEntity, content?: string | null) {
     await Promise.all([
+      // es？
       this.triggerRagReindex(document.id),
+      // es
       this.triggerSearchIndex(document, content),
+      // kg
       this.triggerKgBuild(document.id),
     ]);
   }

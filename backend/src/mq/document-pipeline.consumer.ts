@@ -34,7 +34,9 @@ export class DocumentPipelineConsumer {
     this.rabbit.registerHandler(SEARCH_INDEX_QUEUE, (msg) =>
       this.handleSearch(msg),
     );
-    this.rabbit.registerHandler(KG_GRAPH_QUEUE, (msg) => this.handleKg(msg));
+    this.rabbit.registerHandler(KG_GRAPH_QUEUE, (msg) => 
+      this.handleKg(msg)
+    );
   }
 
   /** RAG：分块 → 向量化 → ES kh_chunk（dense_vector） */

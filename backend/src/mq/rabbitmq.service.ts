@@ -30,6 +30,7 @@ export type MessageHandler = (msg: ConsumeMessage) => Promise<void> | void;
 @Injectable()
 export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RabbitMqService.name);
+  private readonly maxRetryCount = 1;
   private connection: AmqpConnectionManager | null = null;
   private channel: ChannelWrapper | null = null;
   private readonly enabled: boolean;
@@ -84,7 +85,9 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
       json: true,
       setup: async (ch: ConfirmChannel) => {
         this.logger.log('RabbitMQ channel setup：声明拓扑并绑定消费者');
+        // 初始化mq的交换机、对列
         await this.assertTopology(ch);
+        // 绑定消费者
         await this.bindConsumers(ch);
       },
     });
@@ -196,16 +199,60 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async bindConsumers(ch: ConfirmChannel) {
+    // 每个队列的 consumer 各自最多保留一条未确认消息。handler 完成并 ACK/NACK
+    // 前，该队列不会再投递下一条；不同队列仍可并行处理。
+    await ch.prefetch(1);
+
     for (const [queue, handler] of this.handlers.entries()) {
       await ch.consume(queue, async (msg) => {
         if (!msg) return;
+        // console.log('consume',msg)
         try {
           await handler(msg);
           ch.ack(msg);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : String(error);
-          this.logger.error(`消费失败 queue=${queue}: ${message}`);
+          const retryCount = Number(
+            msg.properties.headers?.['x-retry-count'] ?? 0,
+          );
+          if (retryCount < this.maxRetryCount) {
+            this.logger.warn(
+              `消费失败，准备第 ${retryCount + 1}/${this.maxRetryCount} 次重试 queue=${queue}: ${message}`,
+            );
+            // 显式记录重试次数，避免只用 redelivered 标记时无法区分第 2、3 次投递。
+            try {
+              await new Promise<void>((resolve, reject) => {
+                ch.sendToQueue(
+                  queue,
+                  msg.content,
+                  {
+                    ...msg.properties,
+                    headers: {
+                      ...msg.properties.headers,
+                      'x-retry-count': retryCount + 1,
+                    },
+                  },
+                  (publishError) => {
+                    if (publishError) reject(publishError);
+                    else resolve();
+                  },
+                );
+              });
+              ch.ack(msg);
+            } catch (publishError) {
+              this.logger.error(
+                `重试消息发布失败，原消息重新入队 queue=${queue}: ${this.errorMessage(publishError)}`,
+              );
+              ch.nack(msg, false, true);
+            }
+            return;
+          }
+
+          this.logger.error(
+            `消费第 ${retryCount + 1} 次失败，拒绝消息 queue=${queue}: ${message}`,
+          );
+          // 已达到重试上限，不再重新入队，避免异常消息无限循环。
           ch.nack(msg, false, false);
         }
       });

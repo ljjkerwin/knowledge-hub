@@ -127,7 +127,7 @@ export class ChunkingService {
       c.totalChunks = total;
     });
 
-    this.logger.debug(
+    this.logger.log(
       `文档分块完成：documentId=${documentId}, totalChunks=${total}`,
     );
     return chunks;

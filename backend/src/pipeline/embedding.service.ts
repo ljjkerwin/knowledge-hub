@@ -74,7 +74,7 @@ export class EmbeddingService {
     if (!texts.length) return [];
 
     const vectors = await this.embeddings.embedDocuments(texts);
-    this.logger.debug(`嵌入完成：count=${vectors.length}`);
+    this.logger.log(`嵌入完成：count=${vectors.length}`);
     return vectors;
   }
 }

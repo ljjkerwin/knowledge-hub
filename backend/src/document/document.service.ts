@@ -371,8 +371,11 @@ export class DocumentService {
 
     doc.status = DocumentStatus.Published;
     doc.publishTime = new Date();
+    // 更新状态
     const saved = await this.em.save(doc);
+    // 获取md内容
     const content = await this.loadContent(saved.contentId);
+    // mq投递
     await this.safePublish(saved, content);
 
     this.logger.log(`文档发布成功：documentId=${id}`);

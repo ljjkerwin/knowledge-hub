@@ -80,7 +80,7 @@ export class SearchIndexService implements OnModuleInit, OnModuleDestroy {
       refresh: true,
     });
 
-    this.logger.log(`搜索索引已写入 ES：documentId=${id}`);
+    this.logger.debug(`搜索索引已写入 ES：documentId=${id}`);
   }
 
   /** 下架 / 删除时从 ES 移除 */
