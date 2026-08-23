@@ -10,6 +10,7 @@ import { DocumentReviewEntity } from './document/entities/document-review.entity
 import { StorageModule } from './storage/storage.module';
 import { MqModule } from './mq/mq.module';
 import { PipelineModule } from './pipeline/pipeline.module';
+import { RagModule } from './rag/rag.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { PipelineModule } from './pipeline/pipeline.module';
     PipelineModule,
     MqModule,
     StorageModule,
+    RagModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
