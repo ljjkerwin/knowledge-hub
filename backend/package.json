@@ -6,8 +6,6 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "db:postgres:create": "ts-node database/postgres/seeds/000-create-database.ts",
-    "db:postgres:seed": "ts-node database/postgres/seeds/001-create-tables.ts",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

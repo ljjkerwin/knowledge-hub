@@ -11,6 +11,8 @@ import { StorageModule } from './storage/storage.module';
 import { MqModule } from './mq/mq.module';
 import { PipelineModule } from './pipeline/pipeline.module';
 import { RagModule } from './rag/rag.module';
+import { ConversationEntity } from './rag/entities/conversation.entity';
+import { MessageEntity } from './rag/entities/message.entity';
 
 @Module({
   imports: [
@@ -29,7 +31,12 @@ import { RagModule } from './rag/rag.module';
         username: config.get<string>('POSTGRES_USER', 'user'),
         password: config.get<string>('POSTGRES_PASSWORD', '123456'),
         database: config.get<string>('POSTGRES_DB', 'knowledge_hub'),
-        entities: [DocumentEntity, DocumentReviewEntity],
+        entities: [
+          DocumentEntity,
+          DocumentReviewEntity,
+          MessageEntity,
+          ConversationEntity
+        ],
         synchronize: false,
       }),
     }),

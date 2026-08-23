@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ElasticsearchModule } from '@nestjs/elasticsearch';
 import { ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { RagController } from './rag.controller';
 import { RagService } from './rag.service';
 import { RetrievalService } from './retrieval.service';
@@ -11,10 +12,15 @@ import { QuestionAnalyzer } from './agent/question-analyzer.service';
 import { StrategySelector } from './agent/strategy-selector.service';
 import { AnswerEvaluator } from './agent/answer-evaluator.service';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
+import { ConversationService } from './conversation.service';
+import { ContextManager } from './context-manager.service';
+import { ConversationEntity } from './entities/conversation.entity';
+import { MessageEntity } from './entities/message.entity';
 
 @Module({
   imports: [
     ConfigModule,
+    TypeOrmModule.forFeature([ConversationEntity, MessageEntity]),
     ElasticsearchModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -42,7 +48,9 @@ import { AgentOrchestrator } from './agent/agent-orchestrator.service';
     StrategySelector,
     AnswerEvaluator,
     AgentOrchestrator,
+    ConversationService,
+    ContextManager,
   ],
-  exports: [RagService, AgentOrchestrator],
+  exports: [RagService, AgentOrchestrator, ConversationService],
 })
 export class RagModule {}
