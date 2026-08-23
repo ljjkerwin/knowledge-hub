@@ -35,14 +35,14 @@ export function ChatInput({ userId }: ChatInputProps) {
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
-        className="min-h-[60px] max-h-[200px] resize-none"
+        className="min-h-[38px] max-h-[200px] resize-none"
         disabled={isLoading}
       />
       <Button
         onClick={handleSend}
         disabled={!input.trim() || isLoading}
         size="icon"
-        className="h-[60px] w-[60px]"
+        className="h-[38px] w-[50px]"
       >
         {isLoading ? (
           <Square className="h-5 w-5" />

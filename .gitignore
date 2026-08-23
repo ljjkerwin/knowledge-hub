@@ -16,3 +16,6 @@ backend/build
 # temp directory
 .temp
 .tmp
+
+.claude
+.pnpm-store

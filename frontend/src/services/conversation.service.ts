@@ -4,6 +4,7 @@ import {
   ChatResponse,
   Conversation,
   Message,
+  PaginatedResponse,
 } from '@/types/api.types';
 
 /**
@@ -74,14 +75,18 @@ export const conversationService = {
    * 获取对话列表
    */
   async listConversations(userId: string): Promise<Conversation[]> {
-    return apiClient.get<Conversation[]>('/rag/conversations', { userId });
+    const res = await apiClient.get<PaginatedResponse<Conversation>>('/rag/conversations', { userId });
+    return res.items ?? [];
   },
 
   /**
    * 获取对话历史
    */
   async getHistory(conversationId: string): Promise<Message[]> {
-    return apiClient.get<Message[]>(`/rag/conversations/${conversationId}/history`);
+    const res = await apiClient.get<{ conversation: Conversation; messages: Message[] }>(
+      `/rag/conversations/${conversationId}/history`,
+    );
+    return res.messages ?? [];
   },
 
   /**

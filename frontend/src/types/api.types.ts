@@ -133,3 +133,31 @@ export interface ChatResponse {
   confidence: number;
   processingTime: number;
 }
+
+/**
+ * 用户
+ */
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  nickname?: string;
+  avatar?: string;
+  role: number;
+}
+
+/**
+ * 登录请求
+ */
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+/**
+ * 登录响应
+ */
+export interface LoginResponse {
+  user: User;
+  token: string;
+}

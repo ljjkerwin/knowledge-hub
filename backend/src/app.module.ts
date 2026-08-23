@@ -13,6 +13,9 @@ import { PipelineModule } from './pipeline/pipeline.module';
 import { RagModule } from './rag/rag.module';
 import { ConversationEntity } from './rag/entities/conversation.entity';
 import { MessageEntity } from './rag/entities/message.entity';
+import { UserEntity } from './user/entities/user.entity';
+import { AuthModule } from './auth/auth.module';
+import { UserModule } from './user/user.module';
 
 @Module({
   imports: [
@@ -22,6 +25,8 @@ import { MessageEntity } from './rag/entities/message.entity';
     MqModule,
     StorageModule,
     RagModule,
+    AuthModule,
+    UserModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -35,7 +40,8 @@ import { MessageEntity } from './rag/entities/message.entity';
           DocumentEntity,
           DocumentReviewEntity,
           MessageEntity,
-          ConversationEntity
+          ConversationEntity,
+          UserEntity,
         ],
         synchronize: false,
       }),

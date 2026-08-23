@@ -2,7 +2,6 @@
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { Message, Citation } from '@/types/api.types';
 import { User, Bot, FileText } from 'lucide-react';
 
@@ -22,11 +21,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </Avatar>
 
       <div className={`flex flex-col gap-2 max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
-        <Card className={isUser ? 'bg-primary text-primary-foreground' : ''}>
-          <CardContent className="p-3">
-            <div className="whitespace-pre-wrap text-sm">{message.content}</div>
-          </CardContent>
-        </Card>
+        <div
+          className={`rounded-xl px-3 py-2 ring-1 ring-foreground/10 ${
+            isUser ? 'bg-primary text-primary-foreground' : 'bg-card'
+          }`}
+        >
+          <div className="whitespace-pre-wrap text-sm">{message.content}</div>
+        </div>
 
         {message.citations && message.citations.length > 0 && (
           <div className="flex flex-wrap gap-1">

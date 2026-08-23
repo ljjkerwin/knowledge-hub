@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -26,7 +26,11 @@ export function ConversationPanel({ userId }: ConversationPanelProps) {
 
   const [collapsed, setCollapsed] = useState(false);
 
+  const loadedRef = useRef(false);
+
   useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
     loadConversations(userId);
   }, [userId, loadConversations]);
 
@@ -44,7 +48,7 @@ export function ConversationPanel({ userId }: ConversationPanelProps) {
             新对话
           </Button>
         )}
-        <Button
+        {/* <Button
           variant="ghost"
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
@@ -55,7 +59,7 @@ export function ConversationPanel({ userId }: ConversationPanelProps) {
           ) : (
             <PanelLeftClose className="h-4 w-4" />
           )}
-        </Button>
+        </Button> */}
       </div>
 
       <Separator />
