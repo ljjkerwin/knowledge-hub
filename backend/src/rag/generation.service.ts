@@ -11,12 +11,12 @@ export class GenerationService {
 
   constructor(private readonly config: ConfigService) {
     this.llm = new ChatOpenAI({
-      apiKey: this.config.get('LLM_API_KEY'),
-      modelName: this.config.get('LLM_MODEL_NAME', 'deepseek-chat'),
+      apiKey: this.config.get('OPENAI_API_KEY'),
+      modelName: this.config.get('OPENAI_MODEL_NAME', 'deepseek-chat'),
       temperature: Number(this.config.get('LLM_TEMPERATURE', 0.7)),
       maxTokens: Number(this.config.get('LLM_MAX_TOKENS', 2000)),
       configuration: {
-        baseURL: this.config.get('LLM_BASE_URL'),
+        baseURL: this.config.get('OPENAI_BASE_URL'),
       },
     });
   }

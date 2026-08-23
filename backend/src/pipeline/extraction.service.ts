@@ -35,7 +35,7 @@ export class ExtractionService {
   constructor(config: ConfigService) {
     const apiKey =
       config.get<string>('OPENAI_API_KEY') ||
-      config.get<string>('LLM_API_KEY') ||
+      config.get<string>('OPENAI_API_KEY') ||
       config.get<string>('DASHSCOPE_API_KEY') ||
       undefined;
     this.maxEntities = Number(config.get('KG_MAX_ENTITIES', 12));
@@ -45,7 +45,7 @@ export class ExtractionService {
 
     const baseUrl =
       config.get<string>('OPENAI_BASE_URL') ||
-      config.get<string>('LLM_BASE_URL') ||
+      config.get<string>('OPENAI_BASE_URL') ||
       'https://dashscope.aliyuncs.com/compatible-mode/v1';
     const model =
       config.get<string>('OPENAI_MODEL_NAME') ||
@@ -100,7 +100,7 @@ export class ExtractionService {
   ): Promise<ExtractionResult> {
     if (!this.structuredLlm) {
       throw new Error(
-        'KG 抽取未配置 API Key（OPENAI_API_KEY / LLM_API_KEY / DASHSCOPE_API_KEY）',
+        'KG 抽取未配置 API Key（OPENAI_API_KEY / OPENAI_API_KEY / DASHSCOPE_API_KEY）',
       );
     }
 

@@ -7,6 +7,10 @@ import { RagService } from './rag.service';
 import { RetrievalService } from './retrieval.service';
 import { GenerationService } from './generation.service';
 import { PipelineModule } from '../pipeline/pipeline.module';
+import { QuestionAnalyzer } from './agent/question-analyzer.service';
+import { StrategySelector } from './agent/strategy-selector.service';
+import { AnswerEvaluator } from './agent/answer-evaluator.service';
+import { AgentOrchestrator } from './agent/agent-orchestrator.service';
 
 @Module({
   imports: [
@@ -30,7 +34,15 @@ import { PipelineModule } from '../pipeline/pipeline.module';
     PipelineModule,
   ],
   controllers: [RagController],
-  providers: [RagService, RetrievalService, GenerationService],
-  exports: [RagService],
+  providers: [
+    RagService,
+    RetrievalService,
+    GenerationService,
+    QuestionAnalyzer,
+    StrategySelector,
+    AnswerEvaluator,
+    AgentOrchestrator,
+  ],
+  exports: [RagService, AgentOrchestrator],
 })
 export class RagModule {}
