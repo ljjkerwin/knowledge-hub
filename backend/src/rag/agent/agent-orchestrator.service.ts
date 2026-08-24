@@ -15,39 +15,13 @@ import { RetrievalService } from '../retrieval.service';
 import { GraphRetrievalService } from '../graph-retrieval.service';
 import { FusionService, RankedRetrievalResult } from '../fusion.service';
 import { GenerationService } from '../generation.service';
-import { RetrievedChunk, GeneratedAnswer, Citation } from '../types/rag.types';
+import { RetrievedChunk, GeneratedAnswer } from '../types/rag.types';
 import {
   AguiEventType,
   AguiEventUnion,
   AguiStreamOptions,
 } from '../types/agui.types';
 import { SearchType } from '../dto/query.dto';
-
-// Agent 响应
-export interface AgentResponse {
-  answer: string;
-  citations: Citation[];
-  confidence: number;
-  queryId: string;
-  iterations: number;
-  reasoning: ReasoningStep[];
-}
-
-// 推理步骤
-export interface ReasoningStep {
-  step: string;
-  result: string;
-}
-
-// Agent 选项
-export interface AgentOptions {
-  maxIterations?: number;
-  enableFollowUp?: boolean;
-  userId?: string;
-  categoryId?: string;
-  teamId?: string;
-  skipRetrieval?: boolean;
-}
 
 @Injectable()
 export class AgentOrchestrator {
@@ -72,171 +46,12 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Agentic RAG 查询流程
-   */
-  async query(
-    question: string,
-    options?: AgentOptions,
-  ): Promise<AgentResponse> {
-    const queryId = this.generateQueryId();
-    const maxIter = options?.maxIterations || this.maxIterations;
-    const enableFollowUp = options?.enableFollowUp !== false;
-
-    this.logger.log(`开始 Agentic RAG 查询 [${queryId}]: ${question}`);
-
-    const reasoning: ReasoningStep[] = [];
-    if (options?.skipRetrieval) {
-      const answer = await this.generationService.generateDirect(question);
-      reasoning.push({
-        step: 'generation',
-        result: '上下文判断无需检索，已生成普通对话回复',
-      });
-      return {
-        answer: answer.answer,
-        citations: [],
-        confidence: answer.confidence,
-        queryId,
-        iterations: 1,
-        reasoning,
-      };
-    }
-
-    let currentQuestion = question;
-    let allChunks: RetrievedChunk[] = [];
-    let bestAnswer: GeneratedAnswer | null = null;
-    let bestEvaluation: EvaluationResult | null = null;
-
-    for (let iteration = 1; iteration <= maxIter; iteration++) {
-      this.logger.log(`迭代 ${iteration}/${maxIter} [${queryId}]`);
-
-      // 1. 问题分析
-      const analysis = await this.questionAnalyzer.analyze(currentQuestion);
-      reasoning.push({
-        step: `iteration_${iteration}_analysis`,
-        result: `意图: ${analysis.intent}, 改写: "${analysis.rewritten}", 扩展查询: ${analysis.expandedQueries.length}个`,
-      });
-
-      if (analysis.intent === QueryIntent.CHITCHAT) {
-        const answer =
-          await this.generationService.generateDirect(currentQuestion);
-        reasoning.push({
-          step: `iteration_${iteration}_generation`,
-          result: '无需检索，已生成普通对话回复',
-        });
-        return {
-          answer: answer.answer,
-          citations: [],
-          confidence: answer.confidence,
-          queryId,
-          iterations: iteration,
-          reasoning,
-        };
-      }
-
-      // 2. 策略选择
-      const strategy = this.strategySelector.selectStrategy(
-        analysis.intent,
-        currentQuestion,
-      );
-      reasoning.push({
-        step: `iteration_${iteration}_strategy`,
-        result: `检索方式: ${strategy.searchType}, 最终 topK: ${strategy.topK}, 单路候选: ${strategy.candidateTopK}`,
-      });
-
-      // 3. 执行检索
-      const chunks = await this.executeRetrieval(analysis, strategy, options);
-      reasoning.push({
-        step: `iteration_${iteration}_retrieval`,
-        result: `检索到 ${chunks.length} 个相关片段`,
-      });
-
-      // 合并检索结果（去重）
-      allChunks = this.takeTopChunks(
-        this.mergeChunks(allChunks, chunks),
-        this.maxContextChunks,
-      );
-
-      // 4. 生成答案
-      const answer = await this.generationService.generate(
-        currentQuestion,
-        allChunks,
-      );
-      reasoning.push({
-        step: `iteration_${iteration}_generation`,
-        result: `生成答案，引用 ${answer.citations.length} 个来源，置信度 ${answer.confidence}`,
-      });
-
-      // 5. 评估答案
-      const evaluation = await this.answerEvaluator.evaluate(question, answer);
-      reasoning.push({
-        step: `iteration_${iteration}_evaluation`,
-        result: `相关性: ${evaluation.relevance}, 完整性: ${evaluation.completeness}, 需追问: ${evaluation.needsFollowUp}`,
-      });
-
-      // 更新最佳答案
-      if (
-        !bestAnswer ||
-        evaluation.relevance > (bestEvaluation?.relevance || 0)
-      ) {
-        bestAnswer = answer;
-        bestEvaluation = evaluation;
-      }
-
-      // 6. 判断是否需要继续迭代
-      if (!enableFollowUp || !this.answerEvaluator.shouldFollowUp(evaluation)) {
-        this.logger.log(`答案质量满足要求，停止迭代 [${queryId}]`);
-        break;
-      }
-
-      // 7. 准备下一轮迭代
-      if (evaluation.followUpQuestion) {
-        currentQuestion = evaluation.followUpQuestion;
-        reasoning.push({
-          step: `iteration_${iteration}_followup`,
-          result: `追问: "${evaluation.followUpQuestion}"`,
-        });
-      } else {
-        // 使用扩展查询
-        const expandedQuery = analysis.expandedQueries.find(
-          (q) => !currentQuestion.includes(q),
-        );
-        if (expandedQuery) {
-          currentQuestion = expandedQuery;
-          reasoning.push({
-            step: `iteration_${iteration}_expand`,
-            result: `使用扩展查询: "${expandedQuery}"`,
-          });
-        } else {
-          this.logger.log(`无更多优化策略，停止迭代 [${queryId}]`);
-          break;
-        }
-      }
-    }
-
-    // 构建最终响应
-    const response: AgentResponse = {
-      answer: bestAnswer?.answer || '抱歉，无法生成满意的答案。',
-      citations: bestAnswer?.citations || [],
-      confidence: bestAnswer?.confidence || 0,
-      queryId,
-      iterations: reasoning.length,
-      reasoning,
-    };
-
-    this.logger.log(
-      `Agentic RAG 查询完成 [${queryId}]: 迭代次数=${response.iterations}, 置信度=${response.confidence}`,
-    );
-
-    return response;
-  }
-
-  /**
    * 执行检索
    */
   private async executeRetrieval(
     analysis: RewrittenQuery,
     strategy: RetrievalStrategy,
-    options?: AgentOptions,
+    options?: AguiStreamOptions,
   ): Promise<RetrievedChunk[]> {
     const searchOptions = {
       topK: strategy.candidateTopK,

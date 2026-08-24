@@ -75,26 +75,6 @@ export interface ReviewTask {
 }
 
 /**
- * RAG 查询请求
- */
-export interface RagQueryRequest {
-  query: string;
-  searchType?: 'vector' | 'keyword' | 'hybrid';
-  topK?: number;
-  filters?: Record<string, unknown>;
-}
-
-/**
- * Agent 查询请求
- */
-export interface AgentQueryRequest {
-  query: string;
-  conversationId?: string;
-  maxIterations?: number;
-  streamResponse?: boolean;
-}
-
-/**
  * 引用来源
  */
 export interface Citation {
@@ -105,41 +85,6 @@ export interface Citation {
   content: string;
   score: number;
   metadata?: Record<string, unknown>;
-}
-
-/**
- * RAG 查询响应
- */
-export interface RagQueryResponse {
-  queryId: string;
-  answer: string;
-  citations: Citation[];
-  confidence: number;
-  processingTime: number;
-}
-
-/**
- * 推理步骤
- */
-export interface ReasoningStep {
-  step: number;
-  type: 'analyze' | 'retrieve' | 'evaluate' | 'refine';
-  description: string;
-  result?: string;
-  timestamp: number;
-}
-
-/**
- * Agent 查询响应
- */
-export interface AgentQueryResponse {
-  queryId: string;
-  answer: string;
-  citations: Citation[];
-  confidence: number;
-  reasoning: ReasoningStep[];
-  iterations: number;
-  processingTime: number;
 }
 
 /**

@@ -71,9 +71,11 @@ export const conversationService = {
   /**
    * 获取对话列表
    */
-  async listConversations(): Promise<Conversation[]> {
-    const res = await apiClient.get<PaginatedResponse<Conversation>>('/rag/conversations');
-    return res.items ?? [];
+  async listConversations(page = 1, pageSize = 20): Promise<PaginatedResponse<Conversation>> {
+    return apiClient.get<PaginatedResponse<Conversation>>('/rag/conversations', {
+      page: String(page),
+      pageSize: String(pageSize),
+    });
   },
 
   /**

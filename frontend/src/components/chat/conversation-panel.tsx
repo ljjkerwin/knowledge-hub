@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useChatStore } from '@/stores/chat.store';
 import { Conversation } from '@/types/api.types';
-import { MessageSquare, Plus, Trash2, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Loader2, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 
@@ -19,20 +18,50 @@ export function ConversationPanel({ userId }: ConversationPanelProps) {
     conversations,
     conversationId,
     loadConversations,
+    hasMoreConversations,
+    isLoadingConversations,
     loadHistory,
     deleteConversation,
     clearChat,
   } = useChatStore();
 
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = false;
 
   const loadedRef = useRef(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
     loadConversations(userId);
   }, [userId, loadConversations]);
+
+  // 首屏不足一屏时没有机会触发滚动事件，继续加载直到列表可滚动或已无更多数据。
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (
+        list &&
+        list.scrollHeight <= list.clientHeight + 1 &&
+        hasMoreConversations &&
+        !isLoadingConversations
+      ) {
+        void loadConversations(userId, { loadMore: true });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversations.length, hasMoreConversations, isLoadingConversations, loadConversations, userId]);
+
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
+    if (
+      scrollHeight - scrollTop - clientHeight < 80 &&
+      hasMoreConversations &&
+      !isLoadingConversations
+    ) {
+      void loadConversations(userId, { loadMore: true });
+    }
+  };
 
   return (
     <div
@@ -66,7 +95,7 @@ export function ConversationPanel({ userId }: ConversationPanelProps) {
 
       {/* Conversation List */}
       {!collapsed && (
-        <ScrollArea className="flex-1">
+        <div ref={listRef} className="flex-1 overflow-y-auto" onScroll={handleScroll}>
           <div className="p-2 space-y-1">
             {conversations.map((conv) => (
               <ConversationItem
@@ -83,8 +112,16 @@ export function ConversationPanel({ userId }: ConversationPanelProps) {
                 暂无对话记录
               </div>
             )}
+            {isLoadingConversations && (
+              <div className="flex justify-center py-3 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+            )}
+            {!hasMoreConversations && conversations.length > 0 && (
+              <p className="py-3 text-center text-xs text-muted-foreground">已加载全部对话</p>
+            )}
           </div>
-        </ScrollArea>
+        </div>
       )}
     </div>
   );

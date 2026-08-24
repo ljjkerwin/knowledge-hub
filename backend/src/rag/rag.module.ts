@@ -4,7 +4,6 @@ import { ElasticsearchModule } from '@nestjs/elasticsearch';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RagController } from './rag.controller';
-import { RagService } from './rag.service';
 import { RetrievalService } from './retrieval.service';
 import { GraphRetrievalService } from './graph-retrieval.service';
 import { FusionService } from './fusion.service';
@@ -51,7 +50,6 @@ import { LlmModule } from '../llm/llm.module';
   ],
   controllers: [RagController],
   providers: [
-    RagService,
     RetrievalService,
     GraphRetrievalService,
     FusionService,
@@ -63,6 +61,6 @@ import { LlmModule } from '../llm/llm.module';
     ConversationService,
     ContextManager,
   ],
-  exports: [RagService, AgentOrchestrator, ConversationService],
+  exports: [AgentOrchestrator, ConversationService],
 })
 export class RagModule {}

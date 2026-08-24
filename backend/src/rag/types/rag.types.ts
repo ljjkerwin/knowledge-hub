@@ -44,12 +44,3 @@ export interface SearchOptions {
   similarityThreshold?: number;
   hybridAlpha?: number;
 }
-
-// RAG 查询响应
-export interface RagQueryResponse {
-  answer: string;
-  citations: Citation[];
-  confidence: number;
-  queryId: string;
-  retrievedChunks: RetrievedChunk[];
-}
