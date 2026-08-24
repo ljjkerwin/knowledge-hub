@@ -7,6 +7,7 @@ import { RagController } from './rag.controller';
 import { RetrievalService } from './retrieval.service';
 import { GraphRetrievalService } from './graph-retrieval.service';
 import { FusionService } from './fusion.service';
+import { RerankerService } from './reranker.service';
 import { GenerationService } from './generation.service';
 import { PipelineModule } from '../pipeline/pipeline.module';
 import { QuestionAnalyzer } from './agent/question-analyzer.service';
@@ -53,6 +54,7 @@ import { LlmModule } from '../llm/llm.module';
     RetrievalService,
     GraphRetrievalService,
     FusionService,
+    RerankerService,
     GenerationService,
     QuestionAnalyzer,
     StrategySelector,

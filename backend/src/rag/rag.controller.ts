@@ -65,7 +65,7 @@ export class RagController {
           );
         }
 
-        // 2. 在保存当前消息前读取历史，避免当前问题参与自身的上下文改写。
+        // 2. 在保存当前消息前读取历史；Agent 会用它完成上下文改写。
         const context = await this.contextManager.buildContext(
           conversationId,
           dto.message,
@@ -90,27 +90,19 @@ export class RagController {
           }),
         } as MessageEvent);
 
-        // 4. 使用模型把依赖历史的问题改写为独立检索问题。
-        const preparedQuery =
-          await this.contextManager.rewriteQueryForRetrieval(context);
-        
-        this.logger.verbose('rewriteQueryForRetrieval' + JSON.stringify(preparedQuery, null, 2))
-
-        // 5. 流式执行 Agentic RAG
+        // 4. 流式执行 Agentic RAG（含上下文改写、问题分析和检索）。
         let answerText = '';
         let lastQueryId = '';
         let lastCitations: any[] = []; // 引用
         let lastConfidence = 0;
 
-        for await (const event of this.agentOrchestrator.queryStream(
-          preparedQuery.question,
-          {
-            maxIterations: dto.maxIterations,
-            enableFollowUp: true,
-            userId: req.user.id,
-            skipRetrieval: !preparedQuery.needsRetrieval,
-          },
-        )) {
+        for await (const event of this.agentOrchestrator.queryStream({
+          question: dto.message,
+          context,
+          maxIterations: dto.maxIterations,
+          enableFollowUp: true,
+          userId: req.user.id,
+        })) {
           subject.next({
             data: JSON.stringify(event),
           } as MessageEvent);
@@ -139,7 +131,7 @@ export class RagController {
           }
         }
 
-        // 7. 保存助手消息
+        // 5. 保存助手消息
         await this.conversationService.addMessage(
           conversationId,
           'assistant',

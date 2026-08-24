@@ -14,6 +14,7 @@ import { AnswerEvaluator, EvaluationResult } from './answer-evaluator.service';
 import { RetrievalService } from '../retrieval.service';
 import { GraphRetrievalService } from '../graph-retrieval.service';
 import { FusionService, RankedRetrievalResult } from '../fusion.service';
+import { RerankerService } from '../reranker.service';
 import { GenerationService } from '../generation.service';
 import { RetrievedChunk, GeneratedAnswer } from '../types/rag.types';
 import {
@@ -22,6 +23,20 @@ import {
   AguiStreamOptions,
 } from '../types/agui.types';
 import { SearchType } from '../dto/query.dto';
+import type { ConversationContext } from '../context-manager.service';
+
+interface WeightedQuery {
+  query: string;
+  weight: number;
+}
+
+/** Agent 流式查询的完整输入；Controller 只负责准备会话上下文并转发 SSE。 */
+export interface QueryStreamInput extends AguiStreamOptions {
+  /** 用户本轮输入的原始问题，用于保留精确术语。 */
+  question: string;
+  /** 必须在保存当前用户消息前构建，避免问题参与自身的上下文改写。 */
+  context: ConversationContext;
+}
 
 @Injectable()
 export class AgentOrchestrator {
@@ -35,6 +50,7 @@ export class AgentOrchestrator {
     private readonly retrievalService: RetrievalService,
     private readonly graphRetrievalService: GraphRetrievalService,
     private readonly fusionService: FusionService,
+    private readonly rerankerService: RerankerService,
     private readonly generationService: GenerationService,
     private readonly answerEvaluator: AnswerEvaluator,
     private readonly config: ConfigService,
@@ -52,6 +68,7 @@ export class AgentOrchestrator {
     analysis: RewrittenQuery,
     strategy: RetrievalStrategy,
     options?: AguiStreamOptions,
+    originalQuery?: string,
   ): Promise<RetrievedChunk[]> {
     const searchOptions = {
       topK: strategy.candidateTopK,
@@ -60,13 +77,14 @@ export class AgentOrchestrator {
       userId: options?.userId,
     };
 
-    const expandedQueries = strategy.expandQuery
-      ? analysis.expandedQueries.slice(0, 4)
-      : [];
-    const queries = [analysis.rewritten, ...expandedQueries];
-    const queryWeights = this.getQueryWeights(queries.length);
+    const queries = this.buildRetrievalQueries(
+      analysis,
+      strategy,
+      originalQuery,
+    );
+
     const textTasks: Array<Promise<RankedRetrievalResult>> = [];
-    for (const [index, query] of queries.entries()) {
+    for (const { query, weight } of queries) {
       if (strategy.searchType !== SearchType.KEYWORD) {
         textTasks.push(
           this.retrievalService
@@ -80,10 +98,7 @@ export class AgentOrchestrator {
             .then((chunks) => ({
               source: 'vector',
               chunks,
-              weight:
-                this.fusionService.getSourceWeight('vector') *
-                strategy.sourceWeights.vector *
-                queryWeights[index],
+              weight: strategy.sourceWeights.vector * weight,
             })),
         );
       }
@@ -100,10 +115,7 @@ export class AgentOrchestrator {
             .then((chunks) => ({
               source: 'keyword',
               chunks,
-              weight:
-                this.fusionService.getSourceWeight('keyword') *
-                strategy.sourceWeights.keyword *
-                queryWeights[index],
+              weight: strategy.sourceWeights.keyword * weight,
             })),
         );
       }
@@ -111,47 +123,72 @@ export class AgentOrchestrator {
 
     this.logger.verbose('do retrieval')
 
+    const graphTask: Promise<RankedRetrievalResult[]> = strategy.useKnowledgeGraph
+      ? this.graphRetrievalService
+          // 图谱实体词来自同一次问题分析；每轮只查询一次，避免扩展 query 重复访问 Neo4j。
+          .search(analysis.rewritten, searchOptions, analysis.entityTerms ?? [])
+          .then((chunks) => [
+            {
+              source: 'graph' as const,
+              chunks,
+              weight: strategy.sourceWeights.graph,
+            },
+          ])
+      : Promise.resolve([]);
+        
     const [textResults, graphResults] = await Promise.all([
       Promise.all(textTasks),
-      strategy.useKnowledgeGraph
-        ? Promise.all(
-            queries.map((query, index) =>
-              this.graphRetrievalService
-                .search(query, searchOptions)
-                .then((chunks) => {
-                  this.logger.verbose(
-                    `graphRetrievalService初步结果（${chunks.length} 条）：${JSON.stringify(chunks, null, 2)}  query：${query}`,
-                  );
-                  return chunks
-                })
-                .then((chunks) => ({
-                  source: 'graph' as const,
-                  chunks,
-                  weight:
-                    this.fusionService.getSourceWeight('graph') *
-                    strategy.sourceWeights.graph *
-                    queryWeights[index],
-                })),
-            ),
-          )
-        : Promise.resolve([]),
+      graphTask,
     ]);
 
-    const chunks = this.fusionService.fuse(
+    // 先用 WRRF 融合到较大的候选池，再交给 reranker 输出最终 topK。
+    const fusionCandidates = this.fusionService.fuse(
       [...textResults, ...graphResults],
-      strategy.topK,
+      this.rerankerService.getCandidateLimit(strategy.topK),
     );
     this.logger.verbose(
-      `WRRF 融合完成：文本候选=${textResults.reduce((count, result) => count + result.chunks.length, 0)}，图谱候选=${graphResults.reduce((count, result) => count + result.chunks.length, 0)}，最终=${chunks.length}`,
+      `WRRF 融合完成：文本候选=${textResults.reduce((count, result) => count + result.chunks.length, 0)}，图谱候选=${graphResults.reduce((count, result) => count + result.chunks.length, 0)}，精排候选=${fusionCandidates.length}`,
     );
-    const topChunks = this.takeTopChunks(chunks, strategy.topK);
-    return topChunks;
+    return this.rerankerService.rerank(
+      analysis.rewritten,
+      fusionCandidates,
+      strategy.topK,
+    );
   }
 
-  /** 原始改写 query 占 60%，其余预算由扩展 query 均分，防止扩展数量放大来源权重。 */
-  private getQueryWeights(queryCount: number): number[] {
-    if (queryCount <= 1) return [1];
-    return [0.6, ...Array(queryCount - 1).fill(0.4 / (queryCount - 1))];
+  /** 改写查询为主，用户原话用于保留制度名、编号等精确术语。 */
+  private buildRetrievalQueries(
+    analysis: RewrittenQuery,
+    strategy: RetrievalStrategy,
+    originalQuery?: string,
+  ): WeightedQuery[] {
+    const candidates: WeightedQuery[] = [
+      { query: analysis.rewritten, weight: 0.75 },
+      { query: originalQuery ?? '', weight: 0.15 },
+    ];
+
+    if (strategy.expandQuery) {
+      const expanded = analysis.expandedQueries.slice(0, 3);
+      const weight = expanded.length ? 0.1 / expanded.length : 0;
+      candidates.push(...expanded.map((query) => ({ query, weight })));
+    }
+
+    // 按规范化文本去重；相同 query 的权重合并，避免重复请求 ES / Embedding。
+    const unique = new Map<string, WeightedQuery>();
+    for (const candidate of candidates) {
+      const query = candidate.query.trim();
+      if (!query) continue;
+      const key = query.normalize('NFKC').toLocaleLowerCase();
+      const existing = unique.get(key);
+      if (existing) existing.weight += candidate.weight;
+      else unique.set(key, { query, weight: candidate.weight });
+    }
+
+    const queries = Array.from(unique.values()).slice(0, 5);
+    const totalWeight = queries.reduce((sum, item) => sum + item.weight, 0);
+    return totalWeight > 0
+      ? queries.map((item) => ({ ...item, weight: item.weight / totalWeight }))
+      : [{ query: analysis.rewritten, weight: 1 }];
   }
 
   /**
@@ -187,9 +224,9 @@ export class AgentOrchestrator {
    * Agentic RAG 流式查询（AGUI 规范）
    */
   async *queryStream(
-    question: string,
-    options?: AguiStreamOptions,
+    input: QueryStreamInput,
   ): AsyncGenerator<AguiEventUnion> {
+    const { question: originalQuestion, context, ...options } = input;
     const queryId = this.generateQueryId();
     const maxIter = options?.maxIterations || this.maxIterations;
     const enableFollowUp = options?.enableFollowUp !== false;
@@ -201,37 +238,7 @@ export class AgentOrchestrator {
       data: { queryId, maxIterations: maxIter },
     };
 
-    if (options?.skipRetrieval) {
-      yield {
-        type: AguiEventType.THINKING,
-        timestamp: Date.now(),
-        content: '结合上下文判断该消息无需查询知识库，直接生成回复。',
-      };
-      this.logger.verbose('skipRetrieval')
-
-      const stream = this.generationService.generateDirectStream(question);
-      for await (const chunk of stream) {
-        if (chunk.type === 'token') {
-          yield {
-            type: AguiEventType.TEXT,
-            timestamp: Date.now(),
-            content: chunk.content,
-          };
-        } else if (chunk.type === 'error') {
-          throw new Error(chunk.content);
-        }
-      }
-      yield {
-        type: AguiEventType.DONE,
-        timestamp: Date.now(),
-        queryId,
-        totalIterations: 1,
-      };
-      this.logger.verbose('DONE')
-      return;
-    }
-
-    let currentQuestion = question;
+    let currentQuestion = originalQuestion;
     let allChunks: RetrievedChunk[] = [];
     let bestAnswer: GeneratedAnswer | null = null;
     let bestEvaluation: EvaluationResult | null = null;
@@ -246,15 +253,22 @@ export class AgentOrchestrator {
         };
 
         // 1. 问题分析
-        const analysis = await this.questionAnalyzer.analyze(currentQuestion);
+        const analysis = await this.questionAnalyzer.analyze({
+          question: currentQuestion,
+          context: iteration === 1 ? context : undefined,
+        });
         yield {
           type: AguiEventType.THINKING,
           timestamp: Date.now(),
           content: `问题意图: ${analysis.intent}, 改写为: "${analysis.rewritten}"`,
         };
+
         this.logger.verbose('questionAnalyzer' + JSON.stringify(analysis, null, 2));
 
-        if (analysis.intent === QueryIntent.CHITCHAT) {
+        // 后续策略、检索、生成都使用模型生成的独立改写问题。
+        currentQuestion = analysis.rewritten;
+
+        if (!analysis.needsRetrieval || analysis.intent === QueryIntent.CHITCHAT) {
           yield {
             type: AguiEventType.THINKING,
             timestamp: Date.now(),
@@ -299,6 +313,8 @@ export class AgentOrchestrator {
             finalTopK: strategy.topK,
           },
         };
+                
+        this.logger.verbose('strategy' + JSON.stringify(strategy, null, 2));
 
         // 3. 执行检索
         yield {
@@ -308,9 +324,14 @@ export class AgentOrchestrator {
           searchType: strategy.searchType,
         };
 
-        const chunks = await this.executeRetrieval(analysis, strategy, options);
+        const chunks = await this.executeRetrieval(
+          analysis,
+          strategy,
+          options,
+          originalQuestion,
+        );
 
-        // this.logger.verbose(`chunks` + JSON.stringify(chunks, null, 2));
+        this.logger.verbose(`chunks` + JSON.stringify(chunks, null, 2));
 
         allChunks = this.takeTopChunks(
           this.mergeChunks(allChunks, chunks),
@@ -374,7 +395,7 @@ export class AgentOrchestrator {
 
         // 5. 评估答案
         const evaluation = await this.answerEvaluator.evaluate(
-          question,
+          currentQuestion,
           answer,
         );
         yield {

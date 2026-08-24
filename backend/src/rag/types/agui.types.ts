@@ -122,5 +122,4 @@ export interface AguiStreamOptions {
   userId?: string;
   categoryId?: string;
   teamId?: string;
-  skipRetrieval?: boolean;
 }

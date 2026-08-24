@@ -50,12 +50,26 @@ export class GraphRetrievalService implements OnModuleInit, OnModuleDestroy {
   async search(
     query: string,
     options?: SearchOptions,
+    entityTerms: string[] = [],
   ): Promise<RetrievedChunk[]> {
     if (!this.driver || !query.trim()) return [];
 
-    const terms = this.extractTerms(query);
-    if (!terms.length) return [];
+    // LLM 实体词是主路径。仅在无法召回可用 chunk 时才执行 n-gram，避免泛化短词污染结果。
+    const exactTerms = this.normalizeTerms(entityTerms);
+    if (exactTerms.length) {
+      const exactMatches = await this.searchByTerms(exactTerms, options);
+      if (exactMatches.length) return exactMatches;
+    }
 
+    return this.searchByTerms(this.extractTerms(query), options);
+  }
+
+  /** 使用给定词集合查询图谱。 */
+  private async searchByTerms(
+    terms: string[],
+    options?: SearchOptions,
+  ): Promise<RetrievedChunk[]> {
+    if (!this.driver || !terms.length) return [];
     const session = this.driver.session({ defaultAccessMode: neo4j.session.READ });
     try {
       const result = await session.run(
@@ -75,7 +89,7 @@ export class GraphRetrievalService implements OnModuleInit, OnModuleDestroy {
         WITH d, c, count(DISTINCT entity) AS graphHits
         RETURN c.chunkId AS chunkId, c.documentId AS documentId,
           d.title AS documentTitle, c.content AS content, c.heading AS heading,
-          c.chunkIndex AS chunkIndex, c.totalChunks AS totalChunks
+          c.chunkIndex AS chunkIndex, c.totalChunks AS totalChunks, graphHits
         ORDER BY graphHits DESC, c.chunkIndex ASC
         LIMIT $topK
         `,
@@ -87,7 +101,7 @@ export class GraphRetrievalService implements OnModuleInit, OnModuleDestroy {
         },
       );
 
-      return result.records.map((record, index) => ({
+      return result.records.map((record) => ({
         chunkId: record.get('chunkId'),
         documentId: record.get('documentId'),
         documentTitle: record.get('documentTitle'),
@@ -95,8 +109,8 @@ export class GraphRetrievalService implements OnModuleInit, OnModuleDestroy {
         heading: record.get('heading') ?? null,
         chunkIndex: this.toNumber(record.get('chunkIndex')),
         totalChunks: this.toNumber(record.get('totalChunks')),
-        // 与混合检索 RRF 分数量级一致，便于在合并阶段按命中质量排序。
-        similarity: 0.5 / (61 + index),
+        // 图谱路的原始命中分；FusionService 会在融合后写入最终分数。
+        similarity: this.toNumber(record.get('graphHits')),
         metadata: {
           categoryId: options?.categoryId,
           teamId: options?.teamId,
@@ -110,15 +124,47 @@ export class GraphRetrievalService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // 把用户的查询文本整理成图谱检索所需的关键词列表
+  /**
+   * 生成可用于实体名/别名匹配的候选词。
+   * 中文没有天然空格，不能把一整句当作一个 term；同时保留完整 query，
+   * 并从连续中文片段生成 2~6 字 n-gram，以匹配实体的名称片段。
+   */
   private extractTerms(query: string): string[] {
-    const normalized = query.trim().toLocaleLowerCase();
-    return Array.from(
-      new Set([
-        normalized,
-        ...(normalized.match(/[\p{Script=Han}]{2,}|[a-z0-9_.-]{2,}/gu) ?? []),
-      ]),
-    ).slice(0, 8);
+    const normalized = query.trim().normalize('NFKC').toLocaleLowerCase();
+    const terms = new Set<string>([normalized]);
+
+    for (const segment of normalized.match(/[\p{Script=Han}]+/gu) ?? []) {
+      const chars = Array.from(segment);
+      for (let size = Math.min(6, chars.length); size >= 2; size--) {
+        for (let start = 0; start + size <= chars.length; start++) {
+          terms.add(chars.slice(start, start + size).join(''));
+        }
+      }
+    }
+
+    for (const token of normalized.match(/[a-z0-9_.-]{2,}/gu) ?? []) {
+      terms.add(token);
+    }
+
+    // 长词优先，减少短词先触发宽泛匹配的概率；上限保护 Cypher 参数规模。
+    return Array.from(terms)
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 64);
+  }
+
+  /** 规范化并去重 LLM 产出的精确实体词。 */
+  private normalizeTerms(entityTerms: string[]): string[] {
+    const terms = new Set<string>();
+    for (const term of entityTerms) {
+      const normalized = String(term ?? '')
+        .trim()
+        .normalize('NFKC')
+        .toLocaleLowerCase();
+      if (normalized) terms.add(normalized);
+      if (terms.size >= 64) break;
+    }
+    return Array.from(terms);
   }
 
   private toNumber(value: unknown): number {
