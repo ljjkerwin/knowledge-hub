@@ -14,6 +14,7 @@ import {
 import {
   MessageSquare,
   FileText,
+  ClipboardCheck,
   Brain,
   LogOut,
   User,
@@ -30,7 +31,11 @@ const menuItems = [
     title: '知识管理',
     href: '/documents',
     icon: FileText,
-    disabled: true,
+  },
+  {
+    title: '审核工作台',
+    href: '/documents/reviews',
+    icon: ClipboardCheck,
   },
 ];
 
@@ -64,23 +69,15 @@ export function Sidebar() {
             return (
               <Link
                 key={item.href}
-                href={item.disabled ? '#' : item.href}
+                href={item.href}
                 className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-primary text-primary-foreground'
-                    : item.disabled
-                    ? 'text-muted-foreground cursor-not-allowed'
                     : 'hover:bg-accent hover:text-accent-foreground'
                 }`}
-                onClick={(e) => item.disabled && e.preventDefault()}
               >
                 <Icon className="h-5 w-5 shrink-0" />
                 <span>{item.title}</span>
-                {item.disabled && (
-                  <span className="ml-auto text-xs bg-muted px-2 py-0.5 rounded">
-                    即将推出
-                  </span>
-                )}
               </Link>
             );
           })}

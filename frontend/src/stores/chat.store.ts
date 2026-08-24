@@ -34,7 +34,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversationId: null,
   messages: [],
   conversations: [],
-  input: '',
+  input: '上海住宿费额度',
   isLoading: false,
   isStreaming: false,
   currentResponse: '',

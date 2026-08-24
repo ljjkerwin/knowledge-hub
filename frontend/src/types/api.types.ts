@@ -17,6 +17,63 @@ export interface PaginatedResponse<T> {
   pageSize: number;
 }
 
+export type DocumentStatus = 0 | 1 | 2 | 3;
+
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  contentId?: string;
+  content?: string;
+  summary?: string;
+  categoryId?: string | null;
+  teamId?: string | null;
+  authorId?: string | null;
+  coverImage?: string | null;
+  tags?: string | null;
+  status: DocumentStatus;
+  remark?: string | null;
+  viewCount: number;
+  likeCount: number;
+  commentCount: number;
+  favouriteCount: number;
+  wordCount: number;
+  publishTime?: string | null;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createBy?: string | null;
+  updateBy?: string | null;
+  deleted: boolean;
+}
+
+export interface DocumentPayload {
+  title?: string;
+  content?: string;
+  summary?: string;
+  categoryId?: string;
+  teamId?: string;
+  authorId?: string;
+  coverImage?: string;
+  tags?: string;
+  remark?: string;
+  isPublic?: boolean;
+  createBy?: string;
+  updateBy?: string;
+  status?: 0 | 1;
+}
+
+export interface ReviewTask {
+  id: string;
+  documentId: string;
+  reviewerId?: string | null;
+  reviewerName?: string | null;
+  reviewResult: 1 | 2 | null;
+  reviewComment?: string | null;
+  beforeStatus: DocumentStatus;
+  reviewedAt?: string | null;
+  createdAt: string;
+}
+
 /**
  * RAG 查询请求
  */
