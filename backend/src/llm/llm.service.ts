@@ -21,7 +21,7 @@ export interface ChatModelOptions {
  */
 @Injectable()
 export class LlmService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   isConfigured(options: Pick<ChatModelOptions, 'apiKey'> = {}): boolean {
     return Boolean(options.apiKey ?? this.getApiKey());
@@ -39,6 +39,11 @@ export class LlmService {
       configuration: {
         baseURL: options.baseURL ?? this.getBaseURL(),
       },
+      modelKwargs: {
+        thinking: {
+          type: 'disabled',
+        }
+      }
     });
   }
 

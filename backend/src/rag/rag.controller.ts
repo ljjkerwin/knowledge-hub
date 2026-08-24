@@ -79,6 +79,8 @@ export class RagController {
           dto.message,
         );
 
+        this.logger.verbose('conversationId ' + conversationId);
+
         // 发送对话 ID
         subject.next({
           data: JSON.stringify({
@@ -91,6 +93,8 @@ export class RagController {
         // 4. 使用模型把依赖历史的问题改写为独立检索问题。
         const preparedQuery =
           await this.contextManager.rewriteQueryForRetrieval(context);
+        
+        this.logger.verbose('rewriteQueryForRetrieval' + JSON.stringify(preparedQuery, null, 2))
 
         // 5. 流式执行 Agentic RAG
         let answerText = '';

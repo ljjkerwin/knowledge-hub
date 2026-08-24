@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useChatStore } from '@/stores/chat.store';
 import { MessageBubble } from './message-bubble';
 import { StreamingBubble } from './streaming-bubble';
@@ -18,8 +17,11 @@ export function MessageList() {
   }, [messages, currentResponse]);
 
   return (
-    <ScrollArea className="flex-1 p-4">
-      <div ref={scrollRef} className="space-y-4 max-w-4xl mx-auto">
+    <div
+      ref={scrollRef}
+      className="chat-message-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+    >
+      <div className="mx-auto max-w-4xl space-y-4">
         {messages.length === 0 && !isStreaming && (
           <div className="flex items-center justify-center h-[400px] text-muted-foreground">
             <div className="text-center">
@@ -40,6 +42,6 @@ export function MessageList() {
           />
         )}
       </div>
-    </ScrollArea>
+    </div>
   );
 }

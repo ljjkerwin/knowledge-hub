@@ -36,11 +36,10 @@ export interface GeneratedAnswer {
 // 检索选项
 export interface SearchOptions {
   topK?: number;
-  searchType?: 'vector' | 'keyword' | 'hybrid';
   categoryId?: string;
   teamId?: string;
   authorId?: string;
   userId?: string;
   similarityThreshold?: number;
-  hybridAlpha?: number;
+  keywordScoreThreshold?: number;
 }

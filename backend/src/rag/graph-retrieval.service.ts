@@ -110,6 +110,7 @@ export class GraphRetrievalService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // 把用户的查询文本整理成图谱检索所需的关键词列表
   private extractTerms(query: string): string[] {
     const normalized = query.trim().toLocaleLowerCase();
     return Array.from(

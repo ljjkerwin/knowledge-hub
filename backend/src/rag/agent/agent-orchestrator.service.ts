@@ -71,6 +71,12 @@ export class AgentOrchestrator {
         textTasks.push(
           this.retrievalService
             .vectorSearch(query, searchOptions)
+            // .then((chunks) => {
+            //   this.logger.verbose(
+            //     `vectorSearch初步结果（${chunks.length} 条）：${JSON.stringify(chunks, null, 2)}`,
+            //   );
+            //   return chunks
+            // })
             .then((chunks) => ({
               source: 'vector',
               chunks,
@@ -85,6 +91,12 @@ export class AgentOrchestrator {
         textTasks.push(
           this.retrievalService
             .keywordSearch(query, searchOptions)
+            // .then((chunks) => {
+            //   this.logger.verbose(
+            //     `keywordSearch初步结果（${chunks.length} 条）：${JSON.stringify(chunks, null, 2)}`,
+            //   );
+            //   return chunks
+            // })
             .then((chunks) => ({
               source: 'keyword',
               chunks,
@@ -97,6 +109,8 @@ export class AgentOrchestrator {
       }
     }
 
+    this.logger.verbose('do retrieval')
+
     const [textResults, graphResults] = await Promise.all([
       Promise.all(textTasks),
       strategy.useKnowledgeGraph
@@ -104,6 +118,12 @@ export class AgentOrchestrator {
             queries.map((query, index) =>
               this.graphRetrievalService
                 .search(query, searchOptions)
+                .then((chunks) => {
+                  this.logger.verbose(
+                    `graphRetrievalService初步结果（${chunks.length} 条）：${JSON.stringify(chunks, null, 2)}  query：${query}`,
+                  );
+                  return chunks
+                })
                 .then((chunks) => ({
                   source: 'graph' as const,
                   chunks,
@@ -174,8 +194,6 @@ export class AgentOrchestrator {
     const maxIter = options?.maxIterations || this.maxIterations;
     const enableFollowUp = options?.enableFollowUp !== false;
 
-    this.logger.verbose(`开始 Agentic RAG 流式查询 [${queryId}]: ${question}`);
-
     // 发送元数据事件
     yield {
       type: AguiEventType.METADATA,
@@ -189,6 +207,8 @@ export class AgentOrchestrator {
         timestamp: Date.now(),
         content: '结合上下文判断该消息无需查询知识库，直接生成回复。',
       };
+      this.logger.verbose('skipRetrieval')
+
       const stream = this.generationService.generateDirectStream(question);
       for await (const chunk of stream) {
         if (chunk.type === 'token') {
@@ -207,6 +227,7 @@ export class AgentOrchestrator {
         queryId,
         totalIterations: 1,
       };
+      this.logger.verbose('DONE')
       return;
     }
 
@@ -231,7 +252,7 @@ export class AgentOrchestrator {
           timestamp: Date.now(),
           content: `问题意图: ${analysis.intent}, 改写为: "${analysis.rewritten}"`,
         };
-        this.logger.verbose('questionAnalyzer', analysis);
+        this.logger.verbose('questionAnalyzer' + JSON.stringify(analysis, null, 2));
 
         if (analysis.intent === QueryIntent.CHITCHAT) {
           yield {
@@ -258,6 +279,7 @@ export class AgentOrchestrator {
             queryId,
             totalIterations: iteration,
           };
+          this.logger.verbose('DONE')
           return;
         }
 
@@ -288,7 +310,7 @@ export class AgentOrchestrator {
 
         const chunks = await this.executeRetrieval(analysis, strategy, options);
 
-        this.logger.verbose(`chunks`, chunks);
+        // this.logger.verbose(`chunks` + JSON.stringify(chunks, null, 2));
 
         allChunks = this.takeTopChunks(
           this.mergeChunks(allChunks, chunks),
@@ -418,6 +440,8 @@ export class AgentOrchestrator {
         queryId,
         totalIterations: allChunks.length > 0 ? 1 : 0,
       };
+
+      this.logger.verbose('DONE')
     } catch (error) {
       this.logger.error(
         `Agentic RAG 流式查询失败 [${queryId}]: ${error.message}`,

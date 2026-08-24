@@ -128,3 +128,25 @@
     @apply font-sans;
   }
 }
+
+/* 聊天消息区域使用独立的纵向滚动条，避免长对话撑开整个页面。 */
+.chat-message-scroll {
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.chat-message-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-message-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+
+.chat-message-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
+}

@@ -68,12 +68,12 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex flex-1 h-full">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
       {/* 对话历史面板 */}
       <ConversationPanel userId={user.id} />
 
       {/* 主聊天区域 */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex min-w-0 min-h-0 flex-1 flex-col">
         <MessageList />
         <ChatInput userId={user.id} />
       </div>

@@ -31,7 +31,7 @@ const analysisSchema = z.object({
     .describe('问题意图'),
   expandedQueries: z
     .array(z.string())
-    .max(4)
+    .max(3)
     .describe('扩展的查询词列表，用于提高检索召回率'),
 });
 type AnalysisLlmOutput = z.infer<typeof analysisSchema>;
@@ -137,7 +137,7 @@ export class QuestionAnalyzer {
    - explanatory: 解释性问题（为什么、原理）
    - chitchat: 寒暄、致谢、告别、简单社交回应等不需要查询知识库的内容
 
-3. **扩展查询**：生成 2-4 个相关的查询词
+3. **扩展查询**：生成 1-3 个相关的查询词
    - 同义词/近义词
    - 相关概念
    - 上下位概念

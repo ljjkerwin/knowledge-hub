@@ -40,7 +40,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversationPage: 0,
   hasMoreConversations: true,
   isLoadingConversations: false,
-  input: '上海住宿费额度',
+  input: '我在处理上海的出差费用，找谁去报销？',
   isLoading: false,
   isStreaming: false,
   currentResponse: '',

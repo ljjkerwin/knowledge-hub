@@ -89,11 +89,7 @@ export class ContextManager {
     }
 
     try {
-      const response = await this.llm
-        .withStructuredOutput(retrievalQuerySchema, {
-          name: 'prepare_retrieval_query',
-        })
-        .invoke([
+      const messages = [
           new SystemMessage(`你是检索查询改写器。根据给定的对话摘要和历史，将“当前问题”改写成脱离上下文也能理解、可直接用于知识库检索的单句问题。
 
 规则：
@@ -103,7 +99,13 @@ export class ContextManager {
 4. 不得回答问题、解释改写过程、添加历史中没有的事实。
 5. 无法可靠补全时，保留原问题。`),
           new HumanMessage(this.buildConversationalPrompt(context)),
-        ]);
+      ]
+
+      const response = await this.llm
+        .withStructuredOutput(retrievalQuerySchema, {
+          name: 'prepare_retrieval_query',
+        })
+        .invoke(messages);
       const question = response.question.trim();
 
       if (!question) {
