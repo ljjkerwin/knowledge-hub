@@ -94,7 +94,7 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
         MERGE (d:KnowledgeDocument {id: $id})
         // 每次重建都刷新可变元数据；createdAt 仅首次写入
         SET d.title = $title, d.summary = $summary, d.categoryId = $categoryId,
-            d.authorId = $authorId, d.status = $status, d.updatedAt = $now,
+            d.teamId = $teamId, d.authorId = $authorId, d.status = $status, d.updatedAt = $now,
             d.createdAt = coalesce(d.createdAt, $now)
         `,
         {
@@ -102,6 +102,7 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
           title: doc.title,
           summary: doc.summary ?? '',
           categoryId: doc.categoryId ?? null,
+          teamId: doc.teamId ?? null,
           authorId: doc.authorId ?? null,
           status: doc.status,
           now,

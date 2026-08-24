@@ -6,10 +6,17 @@ import { SearchType } from '../dto/query.dto';
 // 检索策略
 export interface RetrievalStrategy {
   searchType: SearchType;
+  /** 最终送入生成阶段的片段数量 */
   topK: number;
-  rerank: boolean;
+  /** 每条 query 召回的候选数量；扩展查询合并后会截断为 topK */
+  candidateTopK: number;
   expandQuery: boolean;
-  hybridAlpha?: number;
+  useKnowledgeGraph: boolean;
+  sourceWeights: {
+    vector: number;
+    keyword: number;
+    graph: number;
+  };
 }
 
 @Injectable()
@@ -26,12 +33,13 @@ export class StrategySelector {
    */
   selectStrategy(intent: QueryIntent, question: string): RetrievalStrategy {
     const strategy = this.getStrategyByIntent(intent);
+    const adjustedStrategy = this.applyQueryFeatures(strategy, question);
 
     this.logger.log(
-      `选择检索策略: 意图=${intent}, 检索方式=${strategy.searchType}, topK=${strategy.topK}`,
+      `选择检索策略: 意图=${intent}, 检索方式=${adjustedStrategy.searchType}, topK=${adjustedStrategy.topK}, 候选=${adjustedStrategy.candidateTopK}`,
     );
 
-    return strategy;
+    return adjustedStrategy;
   }
 
   /**
@@ -40,12 +48,14 @@ export class StrategySelector {
   private getStrategyByIntent(intent: QueryIntent): RetrievalStrategy {
     switch (intent) {
       case QueryIntent.FACTUAL:
-        // 事实性问题：向量检索为主，精确匹配
+        // 普通事实问题同时保留语义与精确术语召回。
         return {
-          searchType: SearchType.VECTOR,
+          searchType: SearchType.HYBRID,
           topK: this.defaultTopK,
-          rerank: false,
+          candidateTopK: this.defaultTopK + 2,
           expandQuery: false,
+          useKnowledgeGraph: false,
+          sourceWeights: { vector: 1, keyword: 0.7, graph: 0.4 },
         };
 
       case QueryIntent.PROCEDURAL:
@@ -53,9 +63,10 @@ export class StrategySelector {
         return {
           searchType: SearchType.HYBRID,
           topK: this.defaultTopK + 2,
-          rerank: true,
+          candidateTopK: this.defaultTopK + 4,
           expandQuery: true,
-          hybridAlpha: 0.6,
+          useKnowledgeGraph: false,
+          sourceWeights: { vector: 1, keyword: 0.8, graph: 0.6 },
         };
 
       case QueryIntent.COMPARATIVE:
@@ -63,9 +74,10 @@ export class StrategySelector {
         return {
           searchType: SearchType.HYBRID,
           topK: this.defaultTopK + 3,
-          rerank: true,
+          candidateTopK: this.defaultTopK + 5,
           expandQuery: true,
-          hybridAlpha: 0.5,
+          useKnowledgeGraph: true,
+          sourceWeights: { vector: 0.9, keyword: 0.7, graph: 1 },
         };
 
       case QueryIntent.EXPLANATORY:
@@ -73,18 +85,60 @@ export class StrategySelector {
         return {
           searchType: SearchType.HYBRID,
           topK: this.defaultTopK + 1,
-          rerank: true,
+          candidateTopK: this.defaultTopK + 3,
           expandQuery: true,
-          hybridAlpha: 0.7,
+          useKnowledgeGraph: false,
+          sourceWeights: { vector: 1, keyword: 0.8, graph: 0.6 },
         };
 
       default:
         return {
           searchType: SearchType.HYBRID,
           topK: this.defaultTopK,
-          rerank: false,
+          candidateTopK: this.defaultTopK,
           expandQuery: false,
-        };
+          useKnowledgeGraph: false,
+          sourceWeights: { vector: 1, keyword: 0.8, graph: 0.5 },
+      };
     }
+  }
+
+  /**
+   * 关键词、图谱适用性均由 query 特征补充判断，不能只依赖问题意图。
+   */
+  private applyQueryFeatures(
+    strategy: RetrievalStrategy,
+    question: string,
+  ): RetrievalStrategy {
+    const hasStrongExactTerm =
+      /\b[A-Z]{2,}[\d_-]*\b/.test(question) ||
+      /\bv?\d+(?:\.\d+){1,}\b/i.test(question);
+    const hasQuotedTerm = /["'“”‘’`]/.test(question);
+    const isGraphQuestion =
+      /关系|关联|依赖|影响|导致|上下游|区别|对比|比较|相关|负责|归属|谁/.test(
+        question,
+      );
+
+    const adjusted = {
+      ...strategy,
+      useKnowledgeGraph: strategy.useKnowledgeGraph || isGraphQuestion,
+    };
+
+    if (hasStrongExactTerm) {
+      return {
+        ...adjusted,
+        searchType: SearchType.KEYWORD,
+        useKnowledgeGraph: false,
+        sourceWeights: { vector: 0, keyword: 1.2, graph: 0 },
+      };
+    }
+
+    if (!hasQuotedTerm) return adjusted;
+
+    return {
+      ...adjusted,
+      searchType: SearchType.HYBRID,
+      sourceWeights: { vector: 0.6, keyword: 1.2, graph: 0.3 },
+    };
   }
 }

@@ -12,6 +12,8 @@ import {
 } from './strategy-selector.service';
 import { AnswerEvaluator, EvaluationResult } from './answer-evaluator.service';
 import { RetrievalService } from '../retrieval.service';
+import { GraphRetrievalService } from '../graph-retrieval.service';
+import { FusionService, RankedRetrievalResult } from '../fusion.service';
 import { GenerationService } from '../generation.service';
 import { RetrievedChunk, GeneratedAnswer, Citation } from '../types/rag.types';
 import {
@@ -19,6 +21,7 @@ import {
   AguiEventUnion,
   AguiStreamOptions,
 } from '../types/agui.types';
+import { SearchType } from '../dto/query.dto';
 
 // Agent 响应
 export interface AgentResponse {
@@ -43,22 +46,29 @@ export interface AgentOptions {
   userId?: string;
   categoryId?: string;
   teamId?: string;
+  skipRetrieval?: boolean;
 }
 
 @Injectable()
 export class AgentOrchestrator {
   private readonly logger = new Logger(AgentOrchestrator.name);
   private readonly maxIterations: number;
+  private readonly maxContextChunks: number;
 
   constructor(
     private readonly questionAnalyzer: QuestionAnalyzer,
     private readonly strategySelector: StrategySelector,
     private readonly retrievalService: RetrievalService,
+    private readonly graphRetrievalService: GraphRetrievalService,
+    private readonly fusionService: FusionService,
     private readonly generationService: GenerationService,
     private readonly answerEvaluator: AnswerEvaluator,
     private readonly config: ConfigService,
   ) {
     this.maxIterations = Number(this.config.get('RAG_MAX_ITERATIONS', 3));
+    this.maxContextChunks = Number(
+      this.config.get('RAG_MAX_CONTEXT_CHUNKS', 12),
+    );
   }
 
   /**
@@ -75,6 +85,22 @@ export class AgentOrchestrator {
     this.logger.log(`开始 Agentic RAG 查询 [${queryId}]: ${question}`);
 
     const reasoning: ReasoningStep[] = [];
+    if (options?.skipRetrieval) {
+      const answer = await this.generationService.generateDirect(question);
+      reasoning.push({
+        step: 'generation',
+        result: '上下文判断无需检索，已生成普通对话回复',
+      });
+      return {
+        answer: answer.answer,
+        citations: [],
+        confidence: answer.confidence,
+        queryId,
+        iterations: 1,
+        reasoning,
+      };
+    }
+
     let currentQuestion = question;
     let allChunks: RetrievedChunk[] = [];
     let bestAnswer: GeneratedAnswer | null = null;
@@ -90,6 +116,23 @@ export class AgentOrchestrator {
         result: `意图: ${analysis.intent}, 改写: "${analysis.rewritten}", 扩展查询: ${analysis.expandedQueries.length}个`,
       });
 
+      if (analysis.intent === QueryIntent.CHITCHAT) {
+        const answer =
+          await this.generationService.generateDirect(currentQuestion);
+        reasoning.push({
+          step: `iteration_${iteration}_generation`,
+          result: '无需检索，已生成普通对话回复',
+        });
+        return {
+          answer: answer.answer,
+          citations: [],
+          confidence: answer.confidence,
+          queryId,
+          iterations: iteration,
+          reasoning,
+        };
+      }
+
       // 2. 策略选择
       const strategy = this.strategySelector.selectStrategy(
         analysis.intent,
@@ -97,7 +140,7 @@ export class AgentOrchestrator {
       );
       reasoning.push({
         step: `iteration_${iteration}_strategy`,
-        result: `检索方式: ${strategy.searchType}, topK: ${strategy.topK}, 重排序: ${strategy.rerank}`,
+        result: `检索方式: ${strategy.searchType}, 最终 topK: ${strategy.topK}, 单路候选: ${strategy.candidateTopK}`,
       });
 
       // 3. 执行检索
@@ -108,7 +151,10 @@ export class AgentOrchestrator {
       });
 
       // 合并检索结果（去重）
-      allChunks = this.mergeChunks(allChunks, chunks);
+      allChunks = this.takeTopChunks(
+        this.mergeChunks(allChunks, chunks),
+        this.maxContextChunks,
+      );
 
       // 4. 生成答案
       const answer = await this.generationService.generate(
@@ -193,48 +239,84 @@ export class AgentOrchestrator {
     options?: AgentOptions,
   ): Promise<RetrievedChunk[]> {
     const searchOptions = {
-      topK: strategy.topK,
+      topK: strategy.candidateTopK,
       categoryId: options?.categoryId,
       teamId: options?.teamId,
       userId: options?.userId,
-      hybridAlpha: strategy.hybridAlpha,
     };
 
-    // 如果有扩展查询，执行多路检索
-    if (strategy.expandQuery && analysis.expandedQueries.length > 0) {
-      const queries = [analysis.rewritten, ...analysis.expandedQueries];
-      const allResults = await Promise.all(
-        queries.map((query) =>
-          this.executeSearch(query, strategy.searchType, searchOptions),
-        ),
-      );
-      return this.mergeChunks(...allResults);
+    const expandedQueries = strategy.expandQuery
+      ? analysis.expandedQueries.slice(0, 4)
+      : [];
+    const queries = [analysis.rewritten, ...expandedQueries];
+    const queryWeights = this.getQueryWeights(queries.length);
+    const textTasks: Array<Promise<RankedRetrievalResult>> = [];
+    for (const [index, query] of queries.entries()) {
+      if (strategy.searchType !== SearchType.KEYWORD) {
+        textTasks.push(
+          this.retrievalService
+            .vectorSearch(query, searchOptions)
+            .then((chunks) => ({
+              source: 'vector',
+              chunks,
+              weight:
+                this.fusionService.getSourceWeight('vector') *
+                strategy.sourceWeights.vector *
+                queryWeights[index],
+            })),
+        );
+      }
+      if (strategy.searchType !== SearchType.VECTOR) {
+        textTasks.push(
+          this.retrievalService
+            .keywordSearch(query, searchOptions)
+            .then((chunks) => ({
+              source: 'keyword',
+              chunks,
+              weight:
+                this.fusionService.getSourceWeight('keyword') *
+                strategy.sourceWeights.keyword *
+                queryWeights[index],
+            })),
+        );
+      }
     }
 
-    return this.executeSearch(
-      analysis.rewritten,
-      strategy.searchType,
-      searchOptions,
+    const [textResults, graphResults] = await Promise.all([
+      Promise.all(textTasks),
+      strategy.useKnowledgeGraph
+        ? Promise.all(
+            queries.map((query, index) =>
+              this.graphRetrievalService
+                .search(query, searchOptions)
+                .then((chunks) => ({
+                  source: 'graph' as const,
+                  chunks,
+                  weight:
+                    this.fusionService.getSourceWeight('graph') *
+                    strategy.sourceWeights.graph *
+                    queryWeights[index],
+                })),
+            ),
+          )
+        : Promise.resolve([]),
+    ]);
+
+    const chunks = this.fusionService.fuse(
+      [...textResults, ...graphResults],
+      strategy.topK,
     );
+    this.logger.verbose(
+      `WRRF 融合完成：文本候选=${textResults.reduce((count, result) => count + result.chunks.length, 0)}，图谱候选=${graphResults.reduce((count, result) => count + result.chunks.length, 0)}，最终=${chunks.length}`,
+    );
+    const topChunks = this.takeTopChunks(chunks, strategy.topK);
+    return topChunks;
   }
 
-  /**
-   * 执行单次检索
-   */
-  private async executeSearch(
-    query: string,
-    searchType: string,
-    options: any,
-  ): Promise<RetrievedChunk[]> {
-    switch (searchType) {
-      case 'vector':
-        return this.retrievalService.vectorSearch(query, options);
-      case 'keyword':
-        return this.retrievalService.keywordSearch(query, options);
-      case 'hybrid':
-      default:
-        return this.retrievalService.hybridSearch(query, options);
-    }
+  /** 原始改写 query 占 60%，其余预算由扩展 query 均分，防止扩展数量放大来源权重。 */
+  private getQueryWeights(queryCount: number): number[] {
+    if (queryCount <= 1) return [1];
+    return [0.6, ...Array(queryCount - 1).fill(0.4 / (queryCount - 1))];
   }
 
   /**
@@ -258,6 +340,14 @@ export class AgentOrchestrator {
     );
   }
 
+  /** 限制生成上下文，防止扩展查询或多轮迭代无限累积片段。 */
+  private takeTopChunks(
+    chunks: RetrievedChunk[],
+    limit: number,
+  ): RetrievedChunk[] {
+    return chunks.slice(0, Math.max(1, limit));
+  }
+
   /**
    * Agentic RAG 流式查询（AGUI 规范）
    */
@@ -269,7 +359,7 @@ export class AgentOrchestrator {
     const maxIter = options?.maxIterations || this.maxIterations;
     const enableFollowUp = options?.enableFollowUp !== false;
 
-    this.logger.log(`开始 Agentic RAG 流式查询 [${queryId}]: ${question}`);
+    this.logger.verbose(`开始 Agentic RAG 流式查询 [${queryId}]: ${question}`);
 
     // 发送元数据事件
     yield {
@@ -277,6 +367,33 @@ export class AgentOrchestrator {
       timestamp: Date.now(),
       data: { queryId, maxIterations: maxIter },
     };
+
+    if (options?.skipRetrieval) {
+      yield {
+        type: AguiEventType.THINKING,
+        timestamp: Date.now(),
+        content: '结合上下文判断该消息无需查询知识库，直接生成回复。',
+      };
+      const stream = this.generationService.generateDirectStream(question);
+      for await (const chunk of stream) {
+        if (chunk.type === 'token') {
+          yield {
+            type: AguiEventType.TEXT,
+            timestamp: Date.now(),
+            content: chunk.content,
+          };
+        } else if (chunk.type === 'error') {
+          throw new Error(chunk.content);
+        }
+      }
+      yield {
+        type: AguiEventType.DONE,
+        timestamp: Date.now(),
+        queryId,
+        totalIterations: 1,
+      };
+      return;
+    }
 
     let currentQuestion = question;
     let allChunks: RetrievedChunk[] = [];
@@ -299,6 +416,35 @@ export class AgentOrchestrator {
           timestamp: Date.now(),
           content: `问题意图: ${analysis.intent}, 改写为: "${analysis.rewritten}"`,
         };
+        this.logger.verbose('questionAnalyzer', analysis);
+
+        if (analysis.intent === QueryIntent.CHITCHAT) {
+          yield {
+            type: AguiEventType.THINKING,
+            timestamp: Date.now(),
+            content: '该消息无需查询知识库，直接生成回复。',
+          };
+          const stream =
+            this.generationService.generateDirectStream(currentQuestion);
+          for await (const chunk of stream) {
+            if (chunk.type === 'token') {
+              yield {
+                type: AguiEventType.TEXT,
+                timestamp: Date.now(),
+                content: chunk.content,
+              };
+            } else if (chunk.type === 'error') {
+              throw new Error(chunk.content);
+            }
+          }
+          yield {
+            type: AguiEventType.DONE,
+            timestamp: Date.now(),
+            queryId,
+            totalIterations: iteration,
+          };
+          return;
+        }
 
         // 2. 策略选择
         const strategy = this.strategySelector.selectStrategy(
@@ -312,7 +458,8 @@ export class AgentOrchestrator {
           args: {
             query: analysis.rewritten,
             searchType: strategy.searchType,
-            topK: strategy.topK,
+            candidateTopK: strategy.candidateTopK,
+            finalTopK: strategy.topK,
           },
         };
 
@@ -325,7 +472,13 @@ export class AgentOrchestrator {
         };
 
         const chunks = await this.executeRetrieval(analysis, strategy, options);
-        allChunks = this.mergeChunks(allChunks, chunks);
+
+        this.logger.verbose(`chunks`, chunks);
+
+        allChunks = this.takeTopChunks(
+          this.mergeChunks(allChunks, chunks),
+          this.maxContextChunks,
+        );
 
         yield {
           type: AguiEventType.RETRIEVAL_RESULT,

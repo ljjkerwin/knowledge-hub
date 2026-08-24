@@ -44,7 +44,7 @@ export function StreamingBubble({ response, thinking }: StreamingBubbleProps) {
 
         {!response && !thinking && (
           <Card>
-            <CardContent className="p-3">
+            <CardContent className="py-2">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>正在思考...</span>

@@ -174,8 +174,8 @@ export class RetrievalService {
     query: string,
     options?: SearchOptions,
   ): Promise<RetrievedChunk[]> {
-    const alpha = options?.hybridAlpha || this.hybridAlpha;
-    const topK = options?.topK || this.topK;
+    const alpha = options?.hybridAlpha ?? this.hybridAlpha;
+    const topK = options?.topK ?? this.topK;
 
     try {
       // 并行执行向量检索和关键词检索

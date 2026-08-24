@@ -25,7 +25,7 @@ pnpm install
 pnpm dev
 ```
 
-访问 http://localhost:3000（自动跳转到 `/chat`）
+访问 http://localhost:3001（自动跳转到 `/chat`）
 
 ### 构建生产版本
 

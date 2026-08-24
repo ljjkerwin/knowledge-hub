@@ -6,6 +6,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { RagController } from './rag.controller';
 import { RagService } from './rag.service';
 import { RetrievalService } from './retrieval.service';
+import { GraphRetrievalService } from './graph-retrieval.service';
+import { FusionService } from './fusion.service';
 import { GenerationService } from './generation.service';
 import { PipelineModule } from '../pipeline/pipeline.module';
 import { QuestionAnalyzer } from './agent/question-analyzer.service';
@@ -51,6 +53,8 @@ import { LlmModule } from '../llm/llm.module';
   providers: [
     RagService,
     RetrievalService,
+    GraphRetrievalService,
+    FusionService,
     GenerationService,
     QuestionAnalyzer,
     StrategySelector,

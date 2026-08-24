@@ -205,21 +205,22 @@ export class RagController {
         } as MessageEvent);
 
         // 4. 使用模型把依赖历史的问题改写为独立检索问题。
-        const fullQuestion =
+        const preparedQuery =
           await this.contextManager.rewriteQueryForRetrieval(context);
 
         // 5. 流式执行 Agentic RAG
         let answerText = '';
         let lastQueryId = '';
-        let lastCitations: any[] = [];
+        let lastCitations: any[] = []; // 引用
         let lastConfidence = 0;
 
         for await (const event of this.agentOrchestrator.queryStream(
-          fullQuestion,
+          preparedQuery.question,
           {
             maxIterations: dto.maxIterations,
             enableFollowUp: true,
             userId: req.user.id,
+            skipRetrieval: !preparedQuery.needsRetrieval,
           },
         )) {
           subject.next({
@@ -230,6 +231,7 @@ export class RagController {
           if (event.type === AguiEventType.TEXT) {
             answerText += event.content;
           }
+          // 检索结果
           if (event.type === AguiEventType.RETRIEVAL_RESULT) {
             lastCitations = event.chunks.map((c: any, i: number) => ({
               index: i + 1,
@@ -240,6 +242,7 @@ export class RagController {
               score: c.similarity,
             }));
           }
+          // 评估结果
           if (event.type === AguiEventType.EVALUATION) {
             lastConfidence = event.relevance ?? 0;
           }
