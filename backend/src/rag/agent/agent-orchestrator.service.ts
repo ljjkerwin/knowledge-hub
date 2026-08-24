@@ -10,7 +10,7 @@ import {
   StrategySelector,
   RetrievalStrategy,
 } from './strategy-selector.service';
-import { AnswerEvaluator, EvaluationResult } from './answer-evaluator.service';
+import { AnswerEvaluator } from './answer-evaluator.service';
 import { RetrievalService } from '../retrieval.service';
 import { GraphRetrievalService } from '../graph-retrieval.service';
 import { FusionService, RankedRetrievalResult } from '../fusion.service';
@@ -44,6 +44,7 @@ export class AgentOrchestrator {
   private readonly maxIterations: number;
   /** 跨轮检索结果累计后，允许进入生成上下文的最大片段数。 */
   private readonly maxAccumulatedContextChunks: number;
+  private readonly simulatedStreamChunkIntervalMs: number;
 
   constructor(
     private readonly questionAnalyzer: QuestionAnalyzer,
@@ -60,6 +61,12 @@ export class AgentOrchestrator {
     this.maxAccumulatedContextChunks = Number(
       this.config.get('RAG_MAX_CONTEXT_CHUNKS', 12),
     );
+    const configuredInterval = Number(
+      this.config.get('RAG_SIMULATED_STREAM_CHUNK_INTERVAL_MS', 80),
+    );
+    this.simulatedStreamChunkIntervalMs = Number.isFinite(configuredInterval)
+      ? Math.max(0, configuredInterval)
+      : 80;
   }
 
   /**
@@ -241,8 +248,9 @@ export class AgentOrchestrator {
 
     let currentQuestion = originalQuestion;
     let allChunks: RetrievedChunk[] = [];
+    let completedIterations = 0;
     let bestAnswer: GeneratedAnswer | null = null;
-    let bestEvaluation: EvaluationResult | null = null;
+    let bestRelevance = Number.NEGATIVE_INFINITY;
 
     try {
       for (let iteration = 1; iteration <= maxIter; iteration++) {
@@ -339,6 +347,7 @@ export class AgentOrchestrator {
           this.mergeChunks(allChunks, chunks),
           this.maxAccumulatedContextChunks,
         );
+        completedIterations = iteration;
 
         yield {
           type: AguiEventType.RETRIEVAL_RESULT,
@@ -351,56 +360,26 @@ export class AgentOrchestrator {
           })),
         };
 
-        // 4. 生成答案（流式）
+        // 4. 在服务端生成并评估草稿。草稿不会发送给客户端，避免多轮完整答案被拼接。
         yield {
           type: AguiEventType.THINKING,
           timestamp: Date.now(),
-          content: `基于 ${allChunks.length} 个相关片段生成答案...`,
+          content: `基于 ${allChunks.length} 个相关片段生成草稿并评估...`,
         };
 
         this.logger.verbose(`生成答案，基于 ${allChunks.length} 个相关片段生成答案`)
 
-        let answerText = '';
-        const stream = this.generationService.generateStream(
-          currentQuestion,
+        const draft = await this.generationService.generate(
+          originalQuestion,
           allChunks,
         );
-        for await (const chunk of stream) {
-          if (chunk.type === 'token') {
-            answerText += chunk.content;
-            yield {
-              type: AguiEventType.TEXT,
-              timestamp: Date.now(),
-              content: chunk.content,
-            };
-          } else if (chunk.type === 'citations') {
-            yield {
-              type: AguiEventType.TOOL_RESULT,
-              timestamp: Date.now(),
-              toolName: 'retrieval',
-              result: { citations: chunk.content },
-            };
-          }
-        }
 
-        // 构建完整答案
-        const answer: GeneratedAnswer = {
-          answer: answerText,
-          citations: allChunks.map((c, i) => ({
-            index: i + 1,
-            documentId: c.documentId,
-            documentTitle: c.documentTitle,
-            chunkContent: c.content.substring(0, 200),
-            heading: c.heading,
-            similarity: c.similarity,
-          })),
-          retrievalConfidence: this.calculateConfidence(allChunks),
-        };
+        this.logger.verbose(`评估答案 ${JSON.stringify(draft, null, 2)}`)
 
         // 5. 评估答案
         const evaluation = await this.answerEvaluator.evaluate(
-          currentQuestion,
-          answer,
+          originalQuestion,
+          draft,
         );
         yield {
           type: AguiEventType.EVALUATION,
@@ -411,13 +390,10 @@ export class AgentOrchestrator {
           followUpQuestion: evaluation.followUpQuestion,
         };
 
-        // 更新最佳答案
-        if (
-          !bestAnswer ||
-          evaluation.relevance > (bestEvaluation?.relevance || 0)
-        ) {
-          bestAnswer = answer;
-          bestEvaluation = evaluation;
+        // 保留最佳草稿，迭代结束后直接返回，避免为最终回答额外调用一次模型。
+        if (evaluation.relevance > bestRelevance) {
+          bestAnswer = draft;
+          bestRelevance = evaluation.relevance;
         }
 
         // 6. 判断是否需要继续迭代
@@ -435,9 +411,7 @@ export class AgentOrchestrator {
 
         this.logger.verbose(`准备下一轮迭代 ${JSON.stringify(evaluation, null, 2)}`)
 
-        // 7. 准备下一轮迭代：只切换下一次检索的查询，不会修改本轮已生成的 answer。
-        // 下一轮会基于累计的 allChunks 生成一份新的完整答案；若将多轮 TEXT 事件直接展示，
-        // 调用方需先清空或替换旧答案，避免把多轮完整回答拼接在一起。
+        // 7. 准备下一轮迭代：只切换下一次检索的查询，草稿始终不对客户端可见。
         if (evaluation.followUpQuestion) {
           currentQuestion = evaluation.followUpQuestion;
           yield {
@@ -462,12 +436,49 @@ export class AgentOrchestrator {
         }
       }
 
+      // 未获得草稿视为大模型调用失败；不再额外请求模型进行兜底。
+      if (!bestAnswer) {
+        throw new Error('大模型未生成可返回的答案草稿。');
+      }
+      const finalAnswer = bestAnswer;
+
+      // 发送最佳草稿生成时对应的引用，保证答案与引用来自同一轮上下文。
+      yield {
+        type: AguiEventType.RETRIEVAL_RESULT,
+        timestamp: Date.now(),
+        chunks: finalAnswer.citations.map((citation) => ({
+          documentId: citation.documentId,
+          documentTitle: citation.documentTitle,
+          content: citation.chunkContent,
+          similarity: citation.similarity,
+        })),
+      };
+      yield {
+        type: AguiEventType.THINKING,
+        timestamp: Date.now(),
+        content: `已选择最佳草稿，基于 ${finalAnswer.citations.length} 个相关片段返回答案...`,
+      };
+      // 复用已评估草稿，按片段发送以保持前端逐步展示；不额外调用模型。
+      const answerChunks = this.splitAnswerForStreaming(finalAnswer.answer);
+      for (const [index, content] of answerChunks.entries()) {
+        yield {
+          type: AguiEventType.TEXT,
+          timestamp: Date.now(),
+          content,
+        };
+        if (index < answerChunks.length - 1 && this.simulatedStreamChunkIntervalMs) {
+          await new Promise<void>((resolve) =>
+            setTimeout(resolve, this.simulatedStreamChunkIntervalMs),
+          );
+        }
+      }
+
       // 发送完成事件
       yield {
         type: AguiEventType.DONE,
         timestamp: Date.now(),
         queryId,
-        totalIterations: allChunks.length > 0 ? 1 : 0,
+        totalIterations: completedIterations,
       };
 
       this.logger.verbose('DONE')
@@ -483,14 +494,30 @@ export class AgentOrchestrator {
     }
   }
 
-  /**
-   * 计算置信度
-   */
-  private calculateConfidence(chunks: RetrievedChunk[]): number {
-    if (chunks.length === 0) return 0;
-    const avgSimilarity =
-      chunks.reduce((sum, c) => sum + c.similarity, 0) / chunks.length;
-    return Math.round(avgSimilarity * 100) / 100;
+  /** 将已生成答案拆为适合 SSE 逐步展示的片段，优先保留段落和句子边界。 */
+  private splitAnswerForStreaming(answer: string, maxLength = 50): string[] {
+    const chunks: string[] = [];
+    let remaining = answer;
+
+    while (remaining.length > maxLength) {
+      const boundary = Math.max(
+        remaining.lastIndexOf('\n\n', maxLength),
+        remaining.lastIndexOf('\n', maxLength),
+        remaining.lastIndexOf('。', maxLength),
+        remaining.lastIndexOf('！', maxLength),
+        remaining.lastIndexOf('？', maxLength),
+      );
+      const splitAt =
+        boundary < maxLength / 2
+          ? maxLength
+          : boundary + (remaining.startsWith('\n\n', boundary) ? 2 : 1);
+
+      chunks.push(remaining.slice(0, splitAt));
+      remaining = remaining.slice(splitAt);
+    }
+
+    if (remaining) chunks.push(remaining);
+    return chunks;
   }
 
   /**
