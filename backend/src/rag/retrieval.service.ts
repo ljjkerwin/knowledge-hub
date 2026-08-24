@@ -17,14 +17,19 @@ export class RetrievalService {
     private readonly config: ConfigService,
   ) {
     this.topK = Number(this.config.get('RAG_TOP_K', 5));
-    this.similarityThreshold = Number(this.config.get('RAG_SIMILARITY_THRESHOLD', 0.7));
+    this.similarityThreshold = Number(
+      this.config.get('RAG_SIMILARITY_THRESHOLD', 0.7),
+    );
     this.hybridAlpha = Number(this.config.get('RAG_HYBRID_ALPHA', 0.7));
   }
 
   /**
    * 向量检索（kNN）
    */
-  async vectorSearch(query: string, options?: SearchOptions): Promise<RetrievedChunk[]> {
+  async vectorSearch(
+    query: string,
+    options?: SearchOptions,
+  ): Promise<RetrievedChunk[]> {
     const topK = options?.topK || this.topK;
     const threshold = options?.similarityThreshold || this.similarityThreshold;
 
@@ -43,17 +48,25 @@ export class RetrievalService {
             num_candidates: topK * 10,
           },
           _source: [
-            'chunk_id', 'document_id', 'document_title', 'content',
-            'heading', 'chunk_index', 'total_chunks',
-            'category_id', 'author_id', 'team_id', 'publish_time'
+            'chunk_id',
+            'document_id',
+            'document_title',
+            'content',
+            'heading',
+            'chunk_index',
+            'total_chunks',
+            'category_id',
+            'author_id',
+            'team_id',
+            'publish_time',
           ],
         },
       });
 
       // 3. 转换结果
       const chunks: RetrievedChunk[] = response.hits.hits
-        .filter(hit => hit._score && hit._score >= threshold)
-        .map(hit => {
+        .filter((hit) => hit._score && hit._score >= threshold)
+        .map((hit) => {
           const source = hit._source as any;
           return {
             chunkId: source.chunk_id,
@@ -84,7 +97,10 @@ export class RetrievalService {
   /**
    * 关键词检索（BM25）
    */
-  async keywordSearch(query: string, options?: SearchOptions): Promise<RetrievedChunk[]> {
+  async keywordSearch(
+    query: string,
+    options?: SearchOptions,
+  ): Promise<RetrievedChunk[]> {
     const topK = options?.topK || this.topK;
 
     try {
@@ -108,14 +124,22 @@ export class RetrievalService {
           },
           size: topK,
           _source: [
-            'chunk_id', 'document_id', 'document_title', 'content',
-            'heading', 'chunk_index', 'total_chunks',
-            'category_id', 'author_id', 'team_id', 'publish_time'
+            'chunk_id',
+            'document_id',
+            'document_title',
+            'content',
+            'heading',
+            'chunk_index',
+            'total_chunks',
+            'category_id',
+            'author_id',
+            'team_id',
+            'publish_time',
           ],
         },
       });
 
-      const chunks: RetrievedChunk[] = response.hits.hits.map(hit => {
+      const chunks: RetrievedChunk[] = response.hits.hits.map((hit) => {
         const source = hit._source as any;
         return {
           chunkId: source.chunk_id,
@@ -146,7 +170,10 @@ export class RetrievalService {
   /**
    * 混合检索（向量 + 关键词）
    */
-  async hybridSearch(query: string, options?: SearchOptions): Promise<RetrievedChunk[]> {
+  async hybridSearch(
+    query: string,
+    options?: SearchOptions,
+  ): Promise<RetrievedChunk[]> {
     const alpha = options?.hybridAlpha || this.hybridAlpha;
     const topK = options?.topK || this.topK;
 
@@ -158,7 +185,12 @@ export class RetrievalService {
       ]);
 
       // 使用 RRF (Reciprocal Rank Fusion) 融合结果
-      const mergedChunks = this.mergeResults(vectorResults, keywordResults, alpha, topK);
+      const mergedChunks = this.mergeResults(
+        vectorResults,
+        keywordResults,
+        alpha,
+        topK,
+      );
 
       this.logger.log(`混合检索完成，返回 ${mergedChunks.length} 个结果`);
       return mergedChunks;
@@ -178,7 +210,10 @@ export class RetrievalService {
     topK: number,
   ): RetrievedChunk[] {
     const k = 60; // RRF 常数
-    const scoreMap = new Map<string, { chunk: RetrievedChunk; score: number }>();
+    const scoreMap = new Map<
+      string,
+      { chunk: RetrievedChunk; score: number }
+    >();
 
     // 计算向量检索的 RRF 分数
     vectorResults.forEach((chunk, rank) => {
@@ -206,7 +241,7 @@ export class RetrievalService {
     const merged = Array.from(scoreMap.values())
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
-      .map(item => ({
+      .map((item) => ({
         ...item.chunk,
         similarity: item.score,
       }));

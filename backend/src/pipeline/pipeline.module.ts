@@ -11,9 +11,11 @@ import { GraphBuildService } from './graph-build.service';
 import { PipelineOrchestrator } from './pipeline.orchestrator';
 import { SearchIndexService } from './search-index.service';
 import { VectorIndexService } from './vector-index.service';
+import { LlmModule } from '../llm/llm.module';
 
 @Module({
   imports: [
+    LlmModule,
     MongooseModule.forFeature([
       { name: DocumentContent.name, schema: DocumentContentSchema },
     ]),

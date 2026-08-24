@@ -33,7 +33,6 @@ export interface RagQueryRequest {
 export interface AgentQueryRequest {
   query: string;
   conversationId?: string;
-  userId?: string;
   maxIterations?: number;
   streamResponse?: boolean;
 }
@@ -117,21 +116,8 @@ export interface Message {
 export interface ChatRequest {
   message: string;
   conversationId?: string;
-  userId?: string;
   maxIterations?: number;
   streamResponse?: boolean;
-}
-
-/**
- * 聊天响应
- */
-export interface ChatResponse {
-  conversationId: string;
-  messageId: string;
-  answer: string;
-  citations: Citation[];
-  confidence: number;
-  processingTime: number;
 }
 
 /**

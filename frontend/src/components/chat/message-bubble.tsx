@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Message, Citation } from '@/types/api.types';
 import { User, Bot, FileText } from 'lucide-react';
+import { MarkdownContent } from './markdown-content';
 
 interface MessageBubbleProps {
   message: Message;
@@ -15,7 +16,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       <Avatar className="h-8 w-8">
-        <AvatarFallback>
+        <AvatarFallback className={isUser ? 'bg-[#d4daff]' : ''}>
           {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
         </AvatarFallback>
       </Avatar>
@@ -26,7 +27,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             isUser ? 'bg-primary text-primary-foreground' : 'bg-card'
           }`}
         >
-          <div className="whitespace-pre-wrap text-sm">{message.content}</div>
+          <MarkdownContent content={message.content} />
         </div>
 
         {message.citations && message.citations.length > 0 && (

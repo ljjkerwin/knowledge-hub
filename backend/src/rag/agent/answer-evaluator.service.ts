@@ -1,18 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { GeneratedAnswer } from '../types/rag.types';
+import { LlmService } from '../../llm/llm.service';
 
 // 评估结果
 export interface EvaluationResult {
-  relevance: number;      // 相关性（0-1）
-  completeness: number;   // 完整性（0-1）
-  confidence: number;     // 置信度（0-1）
+  relevance: number; // 相关性（0-1）
+  completeness: number; // 完整性（0-1）
+  confidence: number; // 置信度（0-1）
   needsFollowUp: boolean; // 是否需要追问
   followUpQuestion?: string; // 追问建议
-  reasoning: string;      // 评估理由
+  reasoning: string; // 评估理由
 }
 
 // LLM 输出 schema
@@ -20,7 +20,10 @@ const evaluationSchema = z.object({
   relevance: z.number().min(0).max(1).describe('答案与问题的相关性，0-1'),
   completeness: z.number().min(0).max(1).describe('答案的完整性，0-1'),
   needsFollowUp: z.boolean().describe('是否需要追问以获得更好答案'),
-  followUpQuestion: z.string().optional().describe('如果需要追问，建议的追问问题'),
+  followUpQuestion: z
+    .string()
+    .optional()
+    .describe('如果需要追问，建议的追问问题'),
   reasoning: z.string().describe('评估理由'),
 });
 
@@ -29,15 +32,10 @@ export class AnswerEvaluator {
   private readonly logger = new Logger(AnswerEvaluator.name);
   private readonly llm: ChatOpenAI;
 
-  constructor(private readonly config: ConfigService) {
-    this.llm = new ChatOpenAI({
-      apiKey: this.config.get('OPENAI_API_KEY'),
-      modelName: this.config.get('OPENAI_MODEL_NAME', 'deepseek-chat'),
+  constructor(private readonly llmService: LlmService) {
+    this.llm = this.llmService.create({
       temperature: 0.2, // 低温度以获得稳定评估
       maxTokens: 500,
-      configuration: {
-        baseURL: this.config.get('OPENAI_BASE_URL'),
-      },
     });
   }
 
@@ -69,7 +67,9 @@ export class AnswerEvaluator {
         reasoning: validated.reasoning,
       };
 
-      this.logger.log(`评估完成: 相关性=${result.relevance}, 完整性=${result.completeness}, 需追问=${result.needsFollowUp}`);
+      this.logger.log(
+        `评估完成: 相关性=${result.relevance}, 完整性=${result.completeness}, 需追问=${result.needsFollowUp}`,
+      );
 
       return result;
     } catch (error) {
@@ -85,9 +85,11 @@ export class AnswerEvaluator {
   shouldFollowUp(evaluation: EvaluationResult): boolean {
     // 相关性或完整性低于阈值时需要追问
     const threshold = 0.7;
-    return evaluation.needsFollowUp ||
+    return (
+      evaluation.needsFollowUp ||
       evaluation.relevance < threshold ||
-      evaluation.completeness < threshold;
+      evaluation.completeness < threshold
+    );
   }
 
   /**
@@ -118,10 +120,14 @@ export class AnswerEvaluator {
   /**
    * 构建评估 prompt
    */
-  private buildEvaluationPrompt(question: string, answer: GeneratedAnswer): string {
-    const citationsText = answer.citations.length > 0
-      ? `\n引用来源：${answer.citations.map(c => `[${c.index}] ${c.documentTitle}`).join(', ')}`
-      : '\n无引用来源';
+  private buildEvaluationPrompt(
+    question: string,
+    answer: GeneratedAnswer,
+  ): string {
+    const citationsText =
+      answer.citations.length > 0
+        ? `\n引用来源：${answer.citations.map((c) => `[${c.index}] ${c.documentTitle}`).join(', ')}`
+        : '\n无引用来源';
 
     return `## 用户问题
 ${question}
@@ -158,7 +164,10 @@ ${citationsText}
   /**
    * 简单评估（降级方案）
    */
-  private simpleEvaluate(question: string, answer: GeneratedAnswer): EvaluationResult {
+  private simpleEvaluate(
+    question: string,
+    answer: GeneratedAnswer,
+  ): EvaluationResult {
     const hasCitations = answer.citations.length > 0;
     const answerLength = answer.answer.length;
     const isLongEnough = answerLength > 50;

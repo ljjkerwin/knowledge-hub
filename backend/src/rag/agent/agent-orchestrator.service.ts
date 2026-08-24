@@ -1,8 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import SnowflakeId from 'snowflake-id';
-import { QuestionAnalyzer, RewrittenQuery, QueryIntent } from './question-analyzer.service';
-import { StrategySelector, RetrievalStrategy } from './strategy-selector.service';
+import {
+  QuestionAnalyzer,
+  RewrittenQuery,
+  QueryIntent,
+} from './question-analyzer.service';
+import {
+  StrategySelector,
+  RetrievalStrategy,
+} from './strategy-selector.service';
 import { AnswerEvaluator, EvaluationResult } from './answer-evaluator.service';
 import { RetrievalService } from '../retrieval.service';
 import { GenerationService } from '../generation.service';
@@ -57,7 +64,10 @@ export class AgentOrchestrator {
   /**
    * Agentic RAG 查询流程
    */
-  async query(question: string, options?: AgentOptions): Promise<AgentResponse> {
+  async query(
+    question: string,
+    options?: AgentOptions,
+  ): Promise<AgentResponse> {
     const queryId = this.generateQueryId();
     const maxIter = options?.maxIterations || this.maxIterations;
     const enableFollowUp = options?.enableFollowUp !== false;
@@ -81,7 +91,10 @@ export class AgentOrchestrator {
       });
 
       // 2. 策略选择
-      const strategy = this.strategySelector.selectStrategy(analysis.intent, currentQuestion);
+      const strategy = this.strategySelector.selectStrategy(
+        analysis.intent,
+        currentQuestion,
+      );
       reasoning.push({
         step: `iteration_${iteration}_strategy`,
         result: `检索方式: ${strategy.searchType}, topK: ${strategy.topK}, 重排序: ${strategy.rerank}`,
@@ -98,7 +111,10 @@ export class AgentOrchestrator {
       allChunks = this.mergeChunks(allChunks, chunks);
 
       // 4. 生成答案
-      const answer = await this.generationService.generate(currentQuestion, allChunks);
+      const answer = await this.generationService.generate(
+        currentQuestion,
+        allChunks,
+      );
       reasoning.push({
         step: `iteration_${iteration}_generation`,
         result: `生成答案，引用 ${answer.citations.length} 个来源，置信度 ${answer.confidence}`,
@@ -112,7 +128,10 @@ export class AgentOrchestrator {
       });
 
       // 更新最佳答案
-      if (!bestAnswer || evaluation.relevance > (bestEvaluation?.relevance || 0)) {
+      if (
+        !bestAnswer ||
+        evaluation.relevance > (bestEvaluation?.relevance || 0)
+      ) {
         bestAnswer = answer;
         bestEvaluation = evaluation;
       }
@@ -133,7 +152,7 @@ export class AgentOrchestrator {
       } else {
         // 使用扩展查询
         const expandedQuery = analysis.expandedQueries.find(
-          q => !currentQuestion.includes(q)
+          (q) => !currentQuestion.includes(q),
         );
         if (expandedQuery) {
           currentQuestion = expandedQuery;
@@ -158,7 +177,9 @@ export class AgentOrchestrator {
       reasoning,
     };
 
-    this.logger.log(`Agentic RAG 查询完成 [${queryId}]: 迭代次数=${response.iterations}, 置信度=${response.confidence}`);
+    this.logger.log(
+      `Agentic RAG 查询完成 [${queryId}]: 迭代次数=${response.iterations}, 置信度=${response.confidence}`,
+    );
 
     return response;
   }
@@ -183,12 +204,18 @@ export class AgentOrchestrator {
     if (strategy.expandQuery && analysis.expandedQueries.length > 0) {
       const queries = [analysis.rewritten, ...analysis.expandedQueries];
       const allResults = await Promise.all(
-        queries.map(query => this.executeSearch(query, strategy.searchType, searchOptions))
+        queries.map((query) =>
+          this.executeSearch(query, strategy.searchType, searchOptions),
+        ),
       );
       return this.mergeChunks(...allResults);
     }
 
-    return this.executeSearch(analysis.rewritten, strategy.searchType, searchOptions);
+    return this.executeSearch(
+      analysis.rewritten,
+      strategy.searchType,
+      searchOptions,
+    );
   }
 
   /**
@@ -226,14 +253,18 @@ export class AgentOrchestrator {
     }
 
     // 按相似度排序
-    return Array.from(merged.values())
-      .sort((a, b) => b.similarity - a.similarity);
+    return Array.from(merged.values()).sort(
+      (a, b) => b.similarity - a.similarity,
+    );
   }
 
   /**
    * Agentic RAG 流式查询（AGUI 规范）
    */
-  async *queryStream(question: string, options?: AguiStreamOptions): AsyncGenerator<AguiEventUnion> {
+  async *queryStream(
+    question: string,
+    options?: AguiStreamOptions,
+  ): AsyncGenerator<AguiEventUnion> {
     const queryId = this.generateQueryId();
     const maxIter = options?.maxIterations || this.maxIterations;
     const enableFollowUp = options?.enableFollowUp !== false;
@@ -270,7 +301,10 @@ export class AgentOrchestrator {
         };
 
         // 2. 策略选择
-        const strategy = this.strategySelector.selectStrategy(analysis.intent, currentQuestion);
+        const strategy = this.strategySelector.selectStrategy(
+          analysis.intent,
+          currentQuestion,
+        );
         yield {
           type: AguiEventType.TOOL_CALL,
           timestamp: Date.now(),
@@ -296,7 +330,7 @@ export class AgentOrchestrator {
         yield {
           type: AguiEventType.RETRIEVAL_RESULT,
           timestamp: Date.now(),
-          chunks: chunks.map(c => ({
+          chunks: chunks.map((c) => ({
             documentId: c.documentId,
             documentTitle: c.documentTitle,
             content: c.content.substring(0, 200) + '...',
@@ -312,7 +346,10 @@ export class AgentOrchestrator {
         };
 
         let answerText = '';
-        const stream = this.generationService.generateStream(currentQuestion, allChunks);
+        const stream = this.generationService.generateStream(
+          currentQuestion,
+          allChunks,
+        );
         for await (const chunk of stream) {
           if (chunk.type === 'token') {
             answerText += chunk.content;
@@ -346,7 +383,10 @@ export class AgentOrchestrator {
         };
 
         // 5. 评估答案
-        const evaluation = await this.answerEvaluator.evaluate(question, answer);
+        const evaluation = await this.answerEvaluator.evaluate(
+          question,
+          answer,
+        );
         yield {
           type: AguiEventType.EVALUATION,
           timestamp: Date.now(),
@@ -357,13 +397,19 @@ export class AgentOrchestrator {
         };
 
         // 更新最佳答案
-        if (!bestAnswer || evaluation.relevance > (bestEvaluation?.relevance || 0)) {
+        if (
+          !bestAnswer ||
+          evaluation.relevance > (bestEvaluation?.relevance || 0)
+        ) {
           bestAnswer = answer;
           bestEvaluation = evaluation;
         }
 
         // 6. 判断是否需要继续迭代
-        if (!enableFollowUp || !this.answerEvaluator.shouldFollowUp(evaluation)) {
+        if (
+          !enableFollowUp ||
+          !this.answerEvaluator.shouldFollowUp(evaluation)
+        ) {
           yield {
             type: AguiEventType.THINKING,
             timestamp: Date.now(),
@@ -382,7 +428,7 @@ export class AgentOrchestrator {
           };
         } else {
           const expandedQuery = analysis.expandedQueries.find(
-            q => !currentQuestion.includes(q)
+            (q) => !currentQuestion.includes(q),
           );
           if (expandedQuery) {
             currentQuestion = expandedQuery;
@@ -404,9 +450,10 @@ export class AgentOrchestrator {
         queryId,
         totalIterations: allChunks.length > 0 ? 1 : 0,
       };
-
     } catch (error) {
-      this.logger.error(`Agentic RAG 流式查询失败 [${queryId}]: ${error.message}`);
+      this.logger.error(
+        `Agentic RAG 流式查询失败 [${queryId}]: ${error.message}`,
+      );
       yield {
         type: AguiEventType.ERROR,
         timestamp: Date.now(),
@@ -420,7 +467,8 @@ export class AgentOrchestrator {
    */
   private calculateConfidence(chunks: RetrievedChunk[]): number {
     if (chunks.length === 0) return 0;
-    const avgSimilarity = chunks.reduce((sum, c) => sum + c.similarity, 0) / chunks.length;
+    const avgSimilarity =
+      chunks.reduce((sum, c) => sum + c.similarity, 0) / chunks.length;
     return Math.round(avgSimilarity * 100) / 100;
   }
 

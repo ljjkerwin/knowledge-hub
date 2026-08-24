@@ -72,9 +72,10 @@ export interface AguiRetrievalStartEvent extends AguiBaseEvent {
 export interface AguiRetrievalResultEvent extends AguiBaseEvent {
   type: AguiEventType.RETRIEVAL_RESULT;
   chunks: Array<{
-    chunkId: string;
+    documentId: string;
+    documentTitle: string;
     content: string;
-    score: number;
+    similarity: number;
   }>;
 }
 
@@ -112,8 +113,12 @@ export interface AguiDoneEvent extends AguiBaseEvent {
  */
 export interface AguiMetadataEvent extends AguiBaseEvent {
   type: AguiEventType.METADATA;
-  conversationId: string;
-  queryId: string;
+  conversationId?: string;
+  queryId?: string;
+  data?: {
+    conversationId?: string;
+    queryId?: string;
+  };
 }
 
 /**

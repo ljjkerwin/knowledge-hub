@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { Runnable } from '@langchain/core/runnables';
 import { BaseLanguageModelInput } from '@langchain/core/language_models/base';
@@ -12,6 +11,7 @@ import {
   normalizeRelationType,
 } from './kg-extraction.schema';
 import { ExtractionResult } from './types/pipeline.types';
+import { LlmService } from '../llm/llm.service';
 
 /**
  * 实体 / 关系抽取服务
@@ -32,7 +32,10 @@ export class ExtractionService {
     KgExtractionLlmOutput
   >;
 
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly llmService: LlmService,
+  ) {
     const apiKey =
       config.get<string>('OPENAI_API_KEY') ||
       config.get<string>('OPENAI_API_KEY') ||
@@ -54,18 +57,16 @@ export class ExtractionService {
     const timeout = Number(config.get('KG_LLM_TIMEOUT_MS', 60000));
     const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : 60000;
 
-    const conf = {
+    const llm = this.llmService.create({
       apiKey,
-      model,
+      modelName: model,
+      baseURL: baseUrl,
       temperature: 0.1,
       timeout: timeoutMs,
       maxRetries: 0,
       // DashScope 走 Chat Completions，不要切 OpenAI Responses API
       useResponsesApi: false,
-      configuration: { baseURL: baseUrl },
-    }
-    // console.log(conf)
-    const llm = new ChatOpenAI(conf);
+    });
 
     this.structuredLlm = llm.withStructuredOutput(kgExtractionResultSchema, {
       name: 'extract_knowledge_graph',
@@ -144,7 +145,12 @@ export class ExtractionService {
     for (const r of (parsed.relations ?? []).slice(0, this.maxRelations)) {
       const source = (r.source ?? '').trim();
       const target = (r.target ?? '').trim();
-      if (!source || !target || !entityNames.has(source) || !entityNames.has(target)) {
+      if (
+        !source ||
+        !target ||
+        !entityNames.has(source) ||
+        !entityNames.has(target)
+      ) {
         continue;
       }
       relations.push({

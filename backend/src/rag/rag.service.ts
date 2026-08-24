@@ -20,18 +20,19 @@ export class RagService {
   /**
    * 单轮 RAG 查询
    */
-  async query(dto: QueryRagDto): Promise<RagQueryResponseDto> {
+  async query(dto: QueryRagDto, userId: string): Promise<RagQueryResponseDto> {
     const queryId = this.generateQueryId();
     this.logger.log(`开始 RAG 查询 [${queryId}]: ${dto.question}`);
 
     try {
       // 1. 检索相关 chunks
-      const chunks = await this.retrieve(dto);
+      const chunks = await this.retrieve(dto, userId);
 
       if (chunks.length === 0) {
         this.logger.warn(`未找到相关文档 [${queryId}]`);
         return {
-          answer: '抱歉，未找到与您问题相关的文档内容。请尝试换个问题或检查知识库是否有相关内容。',
+          answer:
+            '抱歉，未找到与您问题相关的文档内容。请尝试换个问题或检查知识库是否有相关内容。',
           citations: [],
           confidence: 0,
           queryId,
@@ -40,9 +41,14 @@ export class RagService {
       }
 
       // 2. 生成答案
-      const result = await this.generationService.generate(dto.question, chunks);
+      const result = await this.generationService.generate(
+        dto.question,
+        chunks,
+      );
 
-      this.logger.log(`RAG 查询完成 [${queryId}]，置信度: ${result.confidence}`);
+      this.logger.log(
+        `RAG 查询完成 [${queryId}]，置信度: ${result.confidence}`,
+      );
 
       return {
         answer: result.answer,
@@ -60,7 +66,10 @@ export class RagService {
   /**
    * 流式 RAG 查询
    */
-  async *queryStream(dto: QueryRagDto): AsyncGenerator<{ type: string; content: any }> {
+  async *queryStream(
+    dto: QueryRagDto,
+    userId: string,
+  ): AsyncGenerator<{ type: string; content: any }> {
     const queryId = this.generateQueryId();
     this.logger.log(`开始流式 RAG 查询 [${queryId}]: ${dto.question}`);
 
@@ -69,12 +78,13 @@ export class RagService {
       yield { type: 'queryId', content: queryId };
 
       // 2. 检索相关 chunks
-      const chunks = await this.retrieve(dto);
+      const chunks = await this.retrieve(dto, userId);
 
       if (chunks.length === 0) {
         yield {
           type: 'answer',
-          content: '抱歉，未找到与您问题相关的文档内容。请尝试换个问题或检查知识库是否有相关内容。',
+          content:
+            '抱歉，未找到与您问题相关的文档内容。请尝试换个问题或检查知识库是否有相关内容。',
         };
         yield { type: 'citations', content: [] };
         yield { type: 'confidence', content: 0 };
@@ -86,7 +96,10 @@ export class RagService {
       yield { type: 'retrieved_count', content: chunks.length };
 
       // 4. 流式生成答案
-      for await (const chunk of this.generationService.generateStream(dto.question, chunks)) {
+      for await (const chunk of this.generationService.generateStream(
+        dto.question,
+        chunks,
+      )) {
         yield chunk;
       }
 
@@ -103,13 +116,16 @@ export class RagService {
   /**
    * 执行检索
    */
-  private async retrieve(dto: QueryRagDto): Promise<RetrievedChunk[]> {
+  private async retrieve(
+    dto: QueryRagDto,
+    userId: string,
+  ): Promise<RetrievedChunk[]> {
     const options = {
       topK: dto.topK,
       categoryId: dto.categoryId,
       teamId: dto.teamId,
       authorId: dto.authorId,
-      userId: dto.userId,
+      userId,
     };
 
     switch (dto.searchType) {

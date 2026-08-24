@@ -1,4 +1,11 @@
-import { IsString, IsOptional, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AgentQueryDto {
@@ -15,10 +22,6 @@ export class AgentQueryDto {
   @IsOptional()
   @IsBoolean()
   enableFollowUp?: boolean = true;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
 
   @IsOptional()
   @IsString()

@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
+import { LlmService } from '../../llm/llm.service';
 
 // 查询意图枚举
 export enum QueryIntent {
-  FACTUAL = 'factual',           // 事实性问题
-  PROCEDURAL = 'procedural',     // 流程/操作问题
-  COMPARATIVE = 'comparative',   // 比较问题
-  EXPLANATORY = 'explanatory',   // 解释性问题
+  FACTUAL = 'factual', // 事实性问题
+  PROCEDURAL = 'procedural', // 流程/操作问题
+  COMPARATIVE = 'comparative', // 比较问题
+  EXPLANATORY = 'explanatory', // 解释性问题
 }
 
 // 改写结果
@@ -23,8 +23,12 @@ export interface RewrittenQuery {
 // LLM 输出 schema
 const analysisSchema = z.object({
   rewritten: z.string().describe('改写后的查询，更清晰、更适合检索'),
-  intent: z.enum(['factual', 'procedural', 'comparative', 'explanatory']).describe('问题意图'),
-  expandedQueries: z.array(z.string()).describe('扩展的查询词列表，用于提高检索召回率'),
+  intent: z
+    .enum(['factual', 'procedural', 'comparative', 'explanatory'])
+    .describe('问题意图'),
+  expandedQueries: z
+    .array(z.string())
+    .describe('扩展的查询词列表，用于提高检索召回率'),
 });
 
 @Injectable()
@@ -32,15 +36,10 @@ export class QuestionAnalyzer {
   private readonly logger = new Logger(QuestionAnalyzer.name);
   private readonly llm: ChatOpenAI;
 
-  constructor(private readonly config: ConfigService) {
-    this.llm = new ChatOpenAI({
-      apiKey: this.config.get('OPENAI_API_KEY'),
-      modelName: this.config.get('OPENAI_MODEL_NAME', 'deepseek-chat'),
+  constructor(private readonly llmService: LlmService) {
+    this.llm = this.llmService.create({
       temperature: 0.3, // 低温度以获得稳定输出
       maxTokens: 500,
-      configuration: {
-        baseURL: this.config.get('OPENAI_BASE_URL'),
-      },
     });
   }
 
@@ -62,7 +61,9 @@ export class QuestionAnalyzer {
       const parsed = this.parseResponse(content);
       const validated = analysisSchema.parse(parsed);
 
-      this.logger.log(`问题分析完成: 意图=${validated.intent}, 扩展查询=${validated.expandedQueries.length}个`);
+      this.logger.log(
+        `问题分析完成: 意图=${validated.intent}, 扩展查询=${validated.expandedQueries.length}个`,
+      );
 
       return {
         original: question,

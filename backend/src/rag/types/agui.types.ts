@@ -3,24 +3,24 @@
 // AGUI 事件类型
 export enum AguiEventType {
   // 消息相关
-  TEXT = 'text',                    // 文本内容
-  THINKING = 'thinking',            // 思考过程
+  TEXT = 'text', // 文本内容
+  THINKING = 'thinking', // 思考过程
 
   // 工具相关
-  TOOL_CALL = 'tool_call',          // 工具调用
-  TOOL_RESULT = 'tool_result',      // 工具结果
+  TOOL_CALL = 'tool_call', // 工具调用
+  TOOL_RESULT = 'tool_result', // 工具结果
 
   // 检索相关
-  RETRIEVAL_START = 'retrieval_start',    // 开始检索
-  RETRIEVAL_RESULT = 'retrieval_result',  // 检索结果
+  RETRIEVAL_START = 'retrieval_start', // 开始检索
+  RETRIEVAL_RESULT = 'retrieval_result', // 检索结果
 
   // 评估相关
-  EVALUATION = 'evaluation',        // 评估结果
+  EVALUATION = 'evaluation', // 评估结果
 
   // 状态相关
-  ERROR = 'error',                  // 错误
-  DONE = 'done',                    // 完成
-  METADATA = 'metadata',            // 元数据
+  ERROR = 'error', // 错误
+  DONE = 'done', // 完成
+  METADATA = 'metadata', // 元数据
 }
 
 // AGUI 基础事件

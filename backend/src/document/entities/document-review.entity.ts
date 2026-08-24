@@ -47,9 +47,9 @@ export class DocumentReviewEntity {
   @Column({ name: 'before_status', type: 'smallint' })
   beforeStatus: number;
 
-  @Column({ name: 'reviewed_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
   reviewedAt?: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

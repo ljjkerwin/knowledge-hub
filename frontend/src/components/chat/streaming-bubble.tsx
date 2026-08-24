@@ -3,6 +3,7 @@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
 import { Bot, Loader2 } from 'lucide-react';
+import { MarkdownContent } from './markdown-content';
 
 interface StreamingBubbleProps {
   response: string;
@@ -33,8 +34,8 @@ export function StreamingBubble({ response, thinking }: StreamingBubbleProps) {
         {response && (
           <Card>
             <CardContent className="p-3">
-              <div className="whitespace-pre-wrap text-sm">
-                {response}
+              <div className="relative">
+                <MarkdownContent content={response} />
                 <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5" />
               </div>
             </CardContent>

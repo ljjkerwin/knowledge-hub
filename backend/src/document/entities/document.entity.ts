@@ -94,7 +94,7 @@ export class DocumentEntity {
   wordCount: number;
 
   /** 发布时间 */
-  @Column({ name: 'publish_time', type: 'timestamp', nullable: true })
+  @Column({ name: 'publish_time', type: 'timestamptz', nullable: true })
   publishTime?: Date | null;
 
   /** 是否公开 */
@@ -102,11 +102,11 @@ export class DocumentEntity {
   isPublic: boolean;
 
   /** 创建时间 */
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   /** 更新时间 */
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   /** 创建人 ID */

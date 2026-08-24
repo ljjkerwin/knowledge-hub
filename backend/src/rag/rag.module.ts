@@ -16,6 +16,7 @@ import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
 import { ConversationEntity } from './entities/conversation.entity';
 import { MessageEntity } from './entities/message.entity';
+import { LlmModule } from '../llm/llm.module';
 
 @Module({
   imports: [
@@ -27,10 +28,16 @@ import { MessageEntity } from './entities/message.entity';
       useFactory: async (configService: ConfigService) => {
         const password = configService.get('ELASTICSEARCH_PASSWORD');
         return {
-          node: configService.get('ELASTICSEARCH_NODE', 'http://localhost:9200'),
+          node: configService.get(
+            'ELASTICSEARCH_NODE',
+            'http://localhost:9200',
+          ),
           auth: password
             ? {
-                username: configService.get('ELASTICSEARCH_USERNAME', 'elastic'),
+                username: configService.get(
+                  'ELASTICSEARCH_USERNAME',
+                  'elastic',
+                ),
                 password,
               }
             : undefined,
@@ -38,6 +45,7 @@ import { MessageEntity } from './entities/message.entity';
       },
     }),
     PipelineModule,
+    LlmModule,
   ],
   controllers: [RagController],
   providers: [

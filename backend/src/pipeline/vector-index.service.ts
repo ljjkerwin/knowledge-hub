@@ -1,5 +1,10 @@
 import { Client } from '@elastic/elasticsearch';
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentChunk } from './types/pipeline.types';
 
@@ -35,10 +40,7 @@ export class VectorIndexService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const node = this.config.get(
-      'ELASTICSEARCH_NODE',
-      'http://localhost:9200',
-    );
+    const node = this.config.get('ELASTICSEARCH_NODE', 'http://localhost:9200');
     this.es = new Client({
       node,
       auth: {
@@ -66,9 +68,7 @@ export class VectorIndexService implements OnModuleInit, OnModuleDestroy {
   /** 删除某文档全部向量块（发布重建 / 下架时调用）。 */
   async deleteByDocId(documentId: string) {
     if (!this.es) {
-      this.logger.warn(
-        `跳过删除向量块（ES 不可用）：documentId=${documentId}`,
-      );
+      this.logger.warn(`跳过删除向量块（ES 不可用）：documentId=${documentId}`);
       return;
     }
 
@@ -127,7 +127,9 @@ export class VectorIndexService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`ES 批量索引部分失败：${failed.length} 条`);
     }
 
-    this.logger.log(`ES 批量索引成功：${chunks.length} chunks → ${CHUNK_INDEX}`);
+    this.logger.log(
+      `ES 批量索引成功：${chunks.length} chunks → ${CHUNK_INDEX}`,
+    );
   }
 
   /**

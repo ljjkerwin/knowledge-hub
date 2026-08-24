@@ -48,6 +48,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendMessage: async (userId: string) => {
     const { input, conversationId, messages } = get();
     if (!input.trim()) return;
+    const isNewConversation = !conversationId;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -71,12 +72,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const stream = conversationService.chatStream({
         message: input,
         conversationId: conversationId || undefined,
-        userId,
         streamResponse: true,
       });
 
       for await (const event of stream) {
-        get().handleStreamEvent(event as AguiEvent);
+        const aguiEvent = event as AguiEvent;
+        get().handleStreamEvent(aguiEvent);
+
+        // 新会话创建后，后端会先推送 metadata。此时立即在侧栏显示它，
+        // 不必等待整段回答完成或下一次刷新会话列表。
+        if (isNewConversation && aguiEvent.type === AguiEventType.METADATA) {
+          const newConversationId = aguiEvent.conversationId ?? aguiEvent.data?.conversationId;
+          if (newConversationId) {
+            const now = new Date().toISOString();
+            const title = input.length > 20 ? `${input.substring(0, 20)}...` : input;
+
+            set((state) => {
+              if (state.conversations.some((item) => item.id === newConversationId)) {
+                return state;
+              }
+
+              return {
+                conversations: [
+                  {
+                    id: newConversationId,
+                    userId,
+                    title,
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                  ...state.conversations,
+                ],
+              };
+            });
+
+            // 服务端此时已完成会话创建；刷新以合并既有历史会话记录。
+            void get().loadConversations(userId);
+          }
+        }
       }
 
       // 流结束，添加助手消息
@@ -107,7 +140,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadConversations: async (userId: string) => {
     try {
-      const conversations = await conversationService.listConversations(userId);
+      const conversations = await conversationService.listConversations();
       set({ conversations });
     } catch (error) {
       console.error('Load conversations failed:', error);
@@ -149,7 +182,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   handleStreamEvent: (event: AguiEvent) => {
     switch (event.type) {
       case AguiEventType.METADATA:
-        set({ conversationId: event.conversationId });
+        // 兼容后端直接返回元数据，以及经 SSE/代理封装到 data 内的元数据。
+        const conversationId = event.conversationId ?? event.data?.conversationId;
+        if (conversationId) {
+          set({ conversationId });
+        }
         break;
 
       case AguiEventType.THINKING:
@@ -163,7 +200,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         break;
 
       case AguiEventType.RETRIEVAL_RESULT:
-        set({ currentCitations: event.chunks as unknown as Citation[] });
+        set({
+          currentCitations: event.chunks.map((c, i) => ({
+            index: i + 1,
+            chunkId: c.documentId,
+            documentId: c.documentId,
+            documentTitle: c.documentTitle,
+            content: c.content,
+            score: c.similarity,
+          })),
+        });
         break;
 
       case AguiEventType.ERROR:

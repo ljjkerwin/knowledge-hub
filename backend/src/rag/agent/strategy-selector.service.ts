@@ -27,7 +27,9 @@ export class StrategySelector {
   selectStrategy(intent: QueryIntent, question: string): RetrievalStrategy {
     const strategy = this.getStrategyByIntent(intent);
 
-    this.logger.log(`选择检索策略: 意图=${intent}, 检索方式=${strategy.searchType}, topK=${strategy.topK}`);
+    this.logger.log(
+      `选择检索策略: 意图=${intent}, 检索方式=${strategy.searchType}, topK=${strategy.topK}`,
+    );
 
     return strategy;
   }

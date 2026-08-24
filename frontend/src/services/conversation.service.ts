@@ -1,7 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import {
   ChatRequest,
-  ChatResponse,
   Conversation,
   Message,
   PaginatedResponse,
@@ -12,13 +11,6 @@ import {
  */
 export const conversationService = {
   /**
-   * 发送聊天消息
-   */
-  async chat(request: ChatRequest): Promise<ChatResponse> {
-    return apiClient.post<ChatResponse>('/rag/chat', request);
-  },
-
-  /**
    * 流式聊天 (SSE)
    */
   async *chatStream(
@@ -28,7 +20,12 @@ export const conversationService = {
       `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/rag/chat/stream`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(typeof window !== 'undefined' && localStorage.getItem('kh_token')
+            ? { Authorization: `Bearer ${localStorage.getItem('kh_token')}` }
+            : {}),
+        },
         body: JSON.stringify(request),
       },
     );
@@ -74,8 +71,8 @@ export const conversationService = {
   /**
    * 获取对话列表
    */
-  async listConversations(userId: string): Promise<Conversation[]> {
-    const res = await apiClient.get<PaginatedResponse<Conversation>>('/rag/conversations', { userId });
+  async listConversations(): Promise<Conversation[]> {
+    const res = await apiClient.get<PaginatedResponse<Conversation>>('/rag/conversations');
     return res.items ?? [];
   },
 

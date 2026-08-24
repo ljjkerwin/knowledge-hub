@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 
 const publicPaths = ['/login'];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // 公开路径不需要认证

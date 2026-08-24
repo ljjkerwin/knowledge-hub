@@ -1,4 +1,11 @@
-import { IsString, IsArray, IsNumber, ValidateNested, IsOptional, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsArray,
+  IsNumber,
+  ValidateNested,
+  IsOptional,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ReasoningStepDto {

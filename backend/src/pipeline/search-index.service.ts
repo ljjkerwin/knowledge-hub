@@ -1,5 +1,10 @@
 import { Client } from '@elastic/elasticsearch';
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /** ES 文档级全文检索索引名 */
@@ -31,10 +36,7 @@ export class SearchIndexService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const node = this.config.get(
-      'ELASTICSEARCH_NODE',
-      'http://localhost:9200',
-    );
+    const node = this.config.get('ELASTICSEARCH_NODE', 'http://localhost:9200');
     this.es = new Client({
       node,
       auth: {
@@ -44,7 +46,9 @@ export class SearchIndexService implements OnModuleInit, OnModuleDestroy {
     });
     try {
       const health = await this.es.cluster.health();
-      this.logger.log(`SearchIndex ES 已连接：${node}, status=${health.status}`);
+      this.logger.log(
+        `SearchIndex ES 已连接：${node}, status=${health.status}`,
+      );
       await this.ensureEsIndex();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

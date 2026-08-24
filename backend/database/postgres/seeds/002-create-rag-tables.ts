@@ -15,8 +15,8 @@ const statements = [
       id BIGINT PRIMARY KEY,
       user_id BIGINT NOT NULL,
       title VARCHAR,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       deleted BOOLEAN NOT NULL DEFAULT FALSE
     )
   `,
@@ -37,7 +37,7 @@ const statements = [
       citations JSONB,
       query_id VARCHAR,
       confidence DECIMAL(3, 2),
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT kh_message_role_check CHECK (role IN ('user', 'assistant', 'system')),
       CONSTRAINT kh_message_confidence_check CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))
     )

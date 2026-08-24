@@ -74,7 +74,7 @@ function cellToString(value: ExcelJS.CellValue): string {
   if (typeof value === 'object') {
     // 公式单元格：优先展示计算结果
     if ('result' in value && value.result != null) {
-      return cellToString(value.result as ExcelJS.CellValue);
+      return cellToString(value.result);
     }
     // 超链接等：{ text, hyperlink }
     if ('text' in value && typeof value.text === 'string') {

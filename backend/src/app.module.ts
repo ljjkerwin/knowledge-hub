@@ -52,9 +52,8 @@ import { UserModule } from './user/user.module';
         uri: config.get<string>('MONGODB_URI'),
       }),
     }),
-
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

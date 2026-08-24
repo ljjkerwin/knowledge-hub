@@ -1,4 +1,11 @@
-import { IsString, IsOptional, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ChatDto {
@@ -8,10 +15,6 @@ export class ChatDto {
   @IsOptional()
   @IsString()
   conversationId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -26,10 +29,6 @@ export class ChatDto {
 }
 
 export class ConversationListDto {
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
   @IsOptional()
   @Type(() => Number)
   @IsInt()

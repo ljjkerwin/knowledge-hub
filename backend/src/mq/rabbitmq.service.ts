@@ -71,9 +71,7 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`RabbitMQ 已连接：${this.redactAmqpUrl(connectedUrl)}`);
     });
     this.connection.on('disconnect', (err) =>
-      this.logger.warn(
-        `RabbitMQ 断开：${this.errorMessage(err?.err ?? err)}`,
-      ),
+      this.logger.warn(`RabbitMQ 断开：${this.errorMessage(err?.err ?? err)}`),
     );
     this.connection.on('connectFailed', (err) =>
       this.logger.error(
@@ -127,7 +125,7 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
       typeof error === 'object' &&
       error &&
       'message' in error &&
-      typeof (error as { message: unknown }).message === 'string'
+      typeof error.message === 'string'
     ) {
       return (error as { message: string }).message;
     }

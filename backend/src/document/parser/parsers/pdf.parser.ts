@@ -182,7 +182,12 @@ export async function parsePdf(
  */
 function sniffImageContentType(data: Uint8Array): string {
   // JPEG: FF D8 FF
-  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
+  if (
+    data.length >= 3 &&
+    data[0] === 0xff &&
+    data[1] === 0xd8 &&
+    data[2] === 0xff
+  ) {
     return 'image/jpeg';
   }
   // PNG: 89 50 4E 47（即 \x89PNG）

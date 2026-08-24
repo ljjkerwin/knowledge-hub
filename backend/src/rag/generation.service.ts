@@ -1,30 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { RetrievedChunk, Citation, GeneratedAnswer } from './types/rag.types';
+import { LlmService } from '../llm/llm.service';
 
 @Injectable()
 export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
   private readonly llm: ChatOpenAI;
 
-  constructor(private readonly config: ConfigService) {
-    this.llm = new ChatOpenAI({
-      apiKey: this.config.get('OPENAI_API_KEY'),
-      modelName: this.config.get('OPENAI_MODEL_NAME', 'deepseek-chat'),
-      temperature: Number(this.config.get('LLM_TEMPERATURE', 0.7)),
-      maxTokens: Number(this.config.get('LLM_MAX_TOKENS', 2000)),
-      configuration: {
-        baseURL: this.config.get('OPENAI_BASE_URL'),
-      },
-    });
+  constructor(private readonly llmService: LlmService) {
+    this.llm = this.llmService.create();
   }
 
   /**
    * 生成答案
    */
-  async generate(query: string, context: RetrievedChunk[]): Promise<GeneratedAnswer> {
+  async generate(
+    query: string,
+    context: RetrievedChunk[],
+  ): Promise<GeneratedAnswer> {
     try {
       // 1. 构建引用列表
       const citations = this.buildCitations(context);
@@ -106,7 +101,11 @@ export class GenerationService {
   /**
    * 构建用户 prompt
    */
-  private buildPrompt(query: string, context: RetrievedChunk[], citations: Citation[]): string {
+  private buildPrompt(
+    query: string,
+    context: RetrievedChunk[],
+    citations: Citation[],
+  ): string {
     const contextText = context
       .map((chunk, index) => {
         const citationNum = index + 1;
@@ -135,7 +134,9 @@ ${query}
       index: index + 1,
       documentId: chunk.documentId,
       documentTitle: chunk.documentTitle,
-      chunkContent: chunk.content.substring(0, 200) + (chunk.content.length > 200 ? '...' : ''),
+      chunkContent:
+        chunk.content.substring(0, 200) +
+        (chunk.content.length > 200 ? '...' : ''),
       heading: chunk.heading,
       similarity: chunk.similarity,
     }));
@@ -144,21 +145,28 @@ ${query}
   /**
    * 计算置信度
    */
-  private calculateConfidence(context: RetrievedChunk[], answer: string): number {
+  private calculateConfidence(
+    context: RetrievedChunk[],
+    answer: string,
+  ): number {
     if (context.length === 0) return 0;
 
     // 基于检索结果的相似度计算基础置信度
-    const avgSimilarity = context.reduce((sum, chunk) => sum + chunk.similarity, 0) / context.length;
+    const avgSimilarity =
+      context.reduce((sum, chunk) => sum + chunk.similarity, 0) /
+      context.length;
 
     // 根据结果数量调整（结果越多越自信）
     const resultCountFactor = Math.min(context.length / 3, 1);
 
     // 根据最高相似度调整
-    const maxSimilarity = Math.max(...context.map(c => c.similarity));
-    const maxSimilarityFactor = maxSimilarity > 0.8 ? 1 : maxSimilarity > 0.6 ? 0.8 : 0.6;
+    const maxSimilarity = Math.max(...context.map((c) => c.similarity));
+    const maxSimilarityFactor =
+      maxSimilarity > 0.8 ? 1 : maxSimilarity > 0.6 ? 0.8 : 0.6;
 
     // 综合计算
-    const confidence = avgSimilarity * 0.4 + resultCountFactor * 0.3 + maxSimilarityFactor * 0.3;
+    const confidence =
+      avgSimilarity * 0.4 + resultCountFactor * 0.3 + maxSimilarityFactor * 0.3;
 
     return Math.round(confidence * 100) / 100;
   }

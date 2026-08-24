@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsInt, Min, Max, IsEnum, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsEnum,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum SearchType {
@@ -33,10 +41,6 @@ export class QueryRagDto {
   @IsOptional()
   @IsString()
   authorId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
 
   @IsOptional()
   @IsBoolean()

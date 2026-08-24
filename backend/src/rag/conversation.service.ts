@@ -26,7 +26,7 @@ export class ConversationService {
   /**
    * 创建对话
    */
-  async create(userId?: string, title?: string): Promise<ConversationEntity> {
+  async create(userId: string, title?: string): Promise<ConversationEntity> {
     const snowflake = new SnowflakeId();
     const conversation = this.em.create(ConversationEntity, {
       id: snowflake.generate().toString(),
@@ -42,14 +42,17 @@ export class ConversationService {
   /**
    * 获取对话列表
    */
-  async list(userId?: string, page = 1, pageSize = 20): Promise<ConversationList> {
-    const qb = this.em.createQueryBuilder(ConversationEntity, 'c')
+  async list(
+    userId: string,
+    page = 1,
+    pageSize = 20,
+  ): Promise<ConversationList> {
+    const qb = this.em
+      .createQueryBuilder(ConversationEntity, 'c')
       .where('c.deleted = :deleted', { deleted: false })
       .orderBy('c.updated_at', 'DESC');
 
-    if (userId) {
-      qb.andWhere('c.user_id = :userId', { userId });
-    }
+    qb.andWhere('c.user_id = :userId', { userId });
 
     const [items, total] = await qb
       .skip((page - 1) * pageSize)
@@ -75,9 +78,30 @@ export class ConversationService {
   }
 
   /**
+   * 获取当前用户拥有的会话，避免通过猜测会话 ID 访问他人记录。
+   */
+  async findOneForUser(
+    id: string,
+    userId: string,
+  ): Promise<ConversationEntity> {
+    const conversation = await this.em.findOne(ConversationEntity, {
+      where: { id, userId, deleted: false },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException(`对话 ${id} 不存在`);
+    }
+
+    return conversation;
+  }
+
+  /**
    * 获取对话历史
    */
-  async getHistory(conversationId: string, limit = 50): Promise<MessageEntity[]> {
+  async getHistory(
+    conversationId: string,
+    limit = 50,
+  ): Promise<MessageEntity[]> {
     return this.em.find(MessageEntity, {
       where: { conversationId },
       order: { createdAt: 'ASC' },
@@ -120,7 +144,8 @@ export class ConversationService {
     if (role === 'user') {
       const conversation = await this.findOne(conversationId);
       if (conversation.title === '新对话') {
-        const title = content.length > 20 ? content.substring(0, 20) + '...' : content;
+        const title =
+          content.length > 20 ? content.substring(0, 20) + '...' : content;
         await this.em.update(ConversationEntity, conversationId, { title });
       }
     }
@@ -131,8 +156,8 @@ export class ConversationService {
   /**
    * 删除对话（软删除）
    */
-  async delete(id: string): Promise<void> {
-    const conversation = await this.findOne(id);
+  async delete(id: string, userId: string): Promise<void> {
+    const conversation = await this.findOneForUser(id, userId);
     conversation.deleted = true;
     await this.em.save(conversation);
     this.logger.log(`删除对话: ${id}`);

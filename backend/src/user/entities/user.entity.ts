@@ -59,15 +59,15 @@ export class UserEntity {
   role: UserRole;
 
   /** 最后登录时间 */
-  @Column({ name: 'last_login_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt?: Date | null;
 
   /** 创建时间 */
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   /** 更新时间 */
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   /** 创建人 ID */
