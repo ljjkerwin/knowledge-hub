@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { BaseLanguageModelInput } from '@langchain/core/language_models/base';
+import { Runnable } from '@langchain/core/runnables';
 import { z } from 'zod';
 import { GeneratedAnswer } from '../types/rag.types';
 import { LlmService } from '../../llm/llm.service';
@@ -31,11 +33,18 @@ const evaluationSchema = z.object({
 export class AnswerEvaluator {
   private readonly logger = new Logger(AnswerEvaluator.name);
   private readonly llm: ChatOpenAI;
+  private readonly structuredLlm: Runnable<
+    BaseLanguageModelInput,
+    z.infer<typeof evaluationSchema>
+  >;
 
   constructor(private readonly llmService: LlmService) {
     this.llm = this.llmService.create({
       temperature: 0.2, // 低温度以获得稳定评估
       maxTokens: 500,
+    });
+    this.structuredLlm = this.llm.withStructuredOutput(evaluationSchema, {
+      name: 'evaluate_answer',
     });
   }
 
@@ -49,19 +58,15 @@ export class AnswerEvaluator {
     this.logger.log(`评估答案质量: 问题="${question.substring(0, 50)}..."`);
 
     try {
-      const response = await this.llm.invoke([
+      const validated = await this.structuredLlm.invoke([
         new SystemMessage(this.getSystemPrompt()),
         new HumanMessage(this.buildEvaluationPrompt(question, answer)),
       ]);
 
-      const content = response.content as string;
-      const parsed = this.parseResponse(content);
-      const validated = evaluationSchema.parse(parsed);
-
       const result: EvaluationResult = {
         relevance: validated.relevance,
         completeness: validated.completeness,
-        confidence: answer.confidence,
+        confidence: answer.retrievalConfidence,
         needsFollowUp: validated.needsFollowUp,
         followUpQuestion: validated.followUpQuestion,
         reasoning: validated.reasoning,
@@ -113,8 +118,7 @@ export class AnswerEvaluator {
 - 问题涉及多个方面但答案只覆盖部分时，建议追问
 - 答案质量足够好时，不需要追问
 
-## 输出格式
-请严格按照 JSON 格式输出，不要添加任何其他文字。`;
+`;
   }
 
   /**
@@ -137,28 +141,9 @@ ${answer.answer}
 
 ## 引用信息
 ${citationsText}
-当前置信度：${answer.confidence}
+检索匹配度：${answer.retrievalConfidence}
 
 请评估这个答案的质量。`;
-  }
-
-  /**
-   * 解析 LLM 响应
-   */
-  private parseResponse(content: string): any {
-    try {
-      return JSON.parse(content);
-    } catch {
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[1]);
-      }
-      const braceMatch = content.match(/\{[\s\S]*\}/);
-      if (braceMatch) {
-        return JSON.parse(braceMatch[0]);
-      }
-      throw new Error('无法解析评估结果');
-    }
   }
 
   /**
@@ -175,7 +160,7 @@ ${citationsText}
     return {
       relevance: hasCitations ? 0.7 : 0.5,
       completeness: isLongEnough ? 0.6 : 0.4,
-      confidence: answer.confidence,
+      confidence: answer.retrievalConfidence,
       needsFollowUp: !hasCitations || !isLongEnough,
       followUpQuestion: !hasCitations ? '能否提供更多信息来源？' : undefined,
       reasoning: '基于简单规则评估（LLM 评估失败）',

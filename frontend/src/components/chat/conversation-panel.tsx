@@ -140,15 +140,15 @@ function ConversationItem({
 }) {
   return (
     <div
-      className={`group flex items-center gap-2 p-2 rounded-md cursor-pointer hover:bg-accent ${
+      className={`group flex items-center gap-2.5 rounded-lg px-3 py-3 cursor-pointer hover:bg-accent ${
         isActive ? 'bg-accent' : ''
       }`}
       onClick={onSelect}
     >
       <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{conversation.title}</div>
-        <div className="text-xs text-muted-foreground">
+        <div className="truncate text-sm font-medium leading-5">{conversation.title}</div>
+        <div className="mt-1 text-xs leading-4 text-muted-foreground">
           {formatDistanceToNow(new Date(conversation.updatedAt), {
             addSuffix: true,
             locale: zhCN,

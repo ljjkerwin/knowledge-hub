@@ -35,10 +35,10 @@ export class GenerationService {
 
       // 4. 解析响应
       const answer = response.content as string;
-      const confidence = this.calculateConfidence(context, answer);
+      const retrievalConfidence = this.calculateConfidence(context, answer);
 
-      this.logger.log(`答案生成完成，置信度: ${confidence}`);
-      return { answer, citations, confidence };
+      this.logger.log(`答案生成完成，检索匹配度: ${retrievalConfidence}`);
+      return { answer, citations, retrievalConfidence };
     } catch (error) {
       this.logger.error(`答案生成失败: ${error.message}`);
       throw error;
@@ -52,7 +52,11 @@ export class GenerationService {
         new SystemMessage(this.getDirectSystemPrompt()),
         new HumanMessage(`<user_request>\n${query}\n</user_request>`),
       ]);
-      return { answer: response.content as string, citations: [], confidence: 1 };
+      return {
+        answer: response.content as string,
+        citations: [],
+        retrievalConfidence: 0,
+      };
     } catch (error) {
       this.logger.error(`普通对话生成失败: ${error.message}`);
       throw error;

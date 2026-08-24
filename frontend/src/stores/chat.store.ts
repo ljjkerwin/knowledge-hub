@@ -111,9 +111,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ],
               };
             });
-
-            // 服务端此时已完成会话创建；刷新以合并既有历史会话记录。
-            void get().loadConversations(userId);
           }
         }
       }

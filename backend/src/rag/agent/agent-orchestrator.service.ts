@@ -42,7 +42,8 @@ export interface QueryStreamInput extends AguiStreamOptions {
 export class AgentOrchestrator {
   private readonly logger = new Logger(AgentOrchestrator.name);
   private readonly maxIterations: number;
-  private readonly maxContextChunks: number;
+  /** 跨轮检索结果累计后，允许进入生成上下文的最大片段数。 */
+  private readonly maxAccumulatedContextChunks: number;
 
   constructor(
     private readonly questionAnalyzer: QuestionAnalyzer,
@@ -56,7 +57,7 @@ export class AgentOrchestrator {
     private readonly config: ConfigService,
   ) {
     this.maxIterations = Number(this.config.get('RAG_MAX_ITERATIONS', 3));
-    this.maxContextChunks = Number(
+    this.maxAccumulatedContextChunks = Number(
       this.config.get('RAG_MAX_CONTEXT_CHUNKS', 12),
     );
   }
@@ -213,7 +214,7 @@ export class AgentOrchestrator {
   }
 
   /** 限制生成上下文，防止扩展查询或多轮迭代无限累积片段。 */
-  private takeTopChunks(
+  private takeTopAccumulatedChunks(
     chunks: RetrievedChunk[],
     limit: number,
   ): RetrievedChunk[] {
@@ -333,9 +334,10 @@ export class AgentOrchestrator {
 
         this.logger.verbose(`chunks` + JSON.stringify(chunks, null, 2));
 
-        allChunks = this.takeTopChunks(
+        // 合并跨轮结果后限制总上下文，单轮 topK 已由 executeRetrieval 控制。
+        allChunks = this.takeTopAccumulatedChunks(
           this.mergeChunks(allChunks, chunks),
-          this.maxContextChunks,
+          this.maxAccumulatedContextChunks,
         );
 
         yield {
@@ -355,6 +357,8 @@ export class AgentOrchestrator {
           timestamp: Date.now(),
           content: `基于 ${allChunks.length} 个相关片段生成答案...`,
         };
+
+        this.logger.verbose(`生成答案，基于 ${allChunks.length} 个相关片段生成答案`)
 
         let answerText = '';
         const stream = this.generationService.generateStream(
@@ -390,7 +394,7 @@ export class AgentOrchestrator {
             heading: c.heading,
             similarity: c.similarity,
           })),
-          confidence: this.calculateConfidence(allChunks),
+          retrievalConfidence: this.calculateConfidence(allChunks),
         };
 
         // 5. 评估答案
@@ -429,7 +433,11 @@ export class AgentOrchestrator {
           break;
         }
 
-        // 7. 准备下一轮迭代
+        this.logger.verbose(`准备下一轮迭代 ${JSON.stringify(evaluation, null, 2)}`)
+
+        // 7. 准备下一轮迭代：只切换下一次检索的查询，不会修改本轮已生成的 answer。
+        // 下一轮会基于累计的 allChunks 生成一份新的完整答案；若将多轮 TEXT 事件直接展示，
+        // 调用方需先清空或替换旧答案，避免把多轮完整回答拼接在一起。
         if (evaluation.followUpQuestion) {
           currentQuestion = evaluation.followUpQuestion;
           yield {

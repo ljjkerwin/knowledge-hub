@@ -38,7 +38,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
 
-        {message.confidence !== undefined && (
+        {!isUser &&
+          (message.citations?.length ?? 0) > 0 &&
+          message.confidence !== undefined && (
           <Badge variant="outline" className="text-xs">
             置信度: {Math.round(message.confidence * 100)}%
           </Badge>
