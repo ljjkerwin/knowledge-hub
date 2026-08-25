@@ -25,7 +25,7 @@ import {
 } from '../types/agui.types';
 import { SearchType } from '../dto/query.dto';
 import type { ConversationContext } from '../context-manager.service';
-import { CallbackHandler } from "@langfuse/langchain";
+import { CallbackHandler } from '@langfuse/langchain';
 
 interface WeightedQuery {
   query: string;
@@ -64,10 +64,6 @@ export interface QueryStreamInput extends AguiStreamOptions {
   /** 必须在保存当前用户消息前构建，避免问题参与自身的上下文改写。 */
   context: ConversationContext;
 }
-
-
-// Initialize the Langfuse CallbackHandler
-const langfuseHandler = new CallbackHandler();
 
 @Injectable()
 export class AgentOrchestrator {
@@ -588,6 +584,7 @@ export class AgentOrchestrator {
     const { question: originalQuestion, context, ...options } = input;
     const queryId = this.generateQueryId();
     const maxIter = options?.maxIterations || this.maxIterations;
+    const langfuseHandler = new CallbackHandler();
     yield {
       type: AguiEventType.METADATA,
       timestamp: Date.now(),
@@ -612,9 +609,7 @@ export class AgentOrchestrator {
         },
         {
           streamMode: 'custom',
-          callbacks: [
-            langfuseHandler,
-          ]
+          callbacks: [langfuseHandler],
         },
       );
       for await (const event of stream) yield event as AguiEventUnion;
