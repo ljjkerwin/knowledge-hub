@@ -362,7 +362,11 @@ export class AgentOrchestrator {
             toolName: 'retrieval',
             args: {
               query: state.analysis!.rewritten,
+              intent: state.analysis!.intent,
+              entityTerms: state.analysis!.entityTerms ?? [],
               searchType: strategy.searchType,
+              useKnowledgeGraph: strategy.useKnowledgeGraph,
+              expandQuery: strategy.expandQuery,
               candidateTopK: strategy.candidateTopK,
               finalTopK: strategy.topK,
             },
