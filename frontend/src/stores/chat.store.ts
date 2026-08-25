@@ -41,7 +41,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   hasMoreConversations: true,
   isLoadingConversations: false,
   input: '',
-  // input: 'm2和m3的报销标准对比',
+  input: 'm2和m3职级报销对比',
   isLoading: false,
   isStreaming: false,
   currentResponse: '',
@@ -161,7 +161,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
     } catch (error) {
       console.error('Load conversations failed:', error);
-      set({ isLoadingConversations: false });
+      // 首屏未填满容器时，面板会自动继续加载下一页。请求失败后必须
+      // 终止分页，否则状态恢复为非加载中会立即触发下一次请求，形成循环。
+      set({ isLoadingConversations: false, hasMoreConversations: false });
     }
   },
 
