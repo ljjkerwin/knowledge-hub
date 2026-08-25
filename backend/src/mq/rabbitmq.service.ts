@@ -199,7 +199,7 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
   private async bindConsumers(ch: ConfirmChannel) {
     // 每个队列的 consumer 各自最多保留一条未确认消息。handler 完成并 ACK/NACK
     // 前，该队列不会再投递下一条；不同队列仍可并行处理。
-    await ch.prefetch(1);
+    await ch.prefetch(10);
 
     for (const [queue, handler] of this.handlers.entries()) {
       await ch.consume(queue, async (msg) => {

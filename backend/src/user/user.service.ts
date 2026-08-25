@@ -17,4 +17,8 @@ export class UserService {
   async findById(id: string): Promise<UserEntity | null> {
     return this.userRepo.findOne({ where: { id, deleted: false } });
   }
+
+  async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
+    await this.userRepo.update(id, { passwordHash });
+  }
 }

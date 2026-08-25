@@ -10,6 +10,7 @@ import { IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { UserService } from '../user/user.service';
+import { LoginCryptoService } from './login-crypto.service';
 
 class LoginDto {
   @IsString()
@@ -25,11 +26,15 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly userService: UserService,
+    private readonly loginCryptoService: LoginCryptoService,
   ) {}
 
   @Post('login')
   async login(@Body() dto: LoginDto) {
-    return this.authService.login(dto.username, dto.password);
+    return this.authService.login(
+      dto.username,
+      this.loginCryptoService.decrypt(dto.password),
+    );
   }
 
   @Get('profile')

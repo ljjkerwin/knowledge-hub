@@ -2,6 +2,10 @@ import { ApiResponse } from '@/types/api.types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002';
 
+type ApiRequestOptions = RequestInit & {
+  skipUnauthorizedRedirect?: boolean;
+};
+
 /**
  * API 客户端错误
  */
@@ -39,14 +43,15 @@ function handleUnauthorized() {
 export const apiClient = {
   async request<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: ApiRequestOptions = {},
   ): Promise<T> {
+    const { skipUnauthorizedRedirect, ...fetchOptions } = options;
     const url = `${API_BASE_URL}${endpoint}`;
     const token = getToken();
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...((options.headers as Record<string, string>) || {}),
+      ...((fetchOptions.headers as Record<string, string>) || {}),
     };
 
     if (token) {
@@ -54,11 +59,11 @@ export const apiClient = {
     }
 
     const response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
     });
 
-    if (response.status === 401) {
+    if (response.status === 401 && !skipUnauthorizedRedirect) {
       handleUnauthorized();
       throw new ApiError(401, '未授权，请重新登录');
     }
@@ -81,8 +86,13 @@ export const apiClient = {
     return this.request<T>(url, { method: 'GET' });
   },
 
-  async post<T>(endpoint: string, body?: unknown): Promise<T> {
+  async post<T>(
+    endpoint: string,
+    body?: unknown,
+    options?: ApiRequestOptions,
+  ): Promise<T> {
     return this.request<T>(endpoint, {
+      ...options,
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
     });

@@ -90,6 +90,16 @@ src/
 NEXT_PUBLIC_API_URL=http://localhost:5002
 ```
 
+后端还需要配置登录解密私钥（Base64 编码的 PEM）：
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out login-private.pem
+base64 < login-private.pem | tr -d '\n'
+# 将输出配置为 LOGIN_RSA_PRIVATE_KEY_BASE64，私钥不可提交到仓库
+
+# 公钥已固定在前端源码中，不需要配置 NEXT_PUBLIC_LOGIN_RSA_PUBLIC_KEY_BASE64
+```
+
 ## 功能特性
 
 - ✅ 左右栏布局（可折叠菜单）
