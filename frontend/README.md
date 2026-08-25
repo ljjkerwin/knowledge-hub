@@ -87,7 +87,7 @@ src/
 创建 `.env.local` 文件：
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:3000
+NEXT_PUBLIC_API_URL=http://localhost:5002
 ```
 
 ## 功能特性
@@ -101,7 +101,7 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 
 ## 与后端集成
 
-前端默认连接 `http://localhost:3000` 的后端服务。确保后端服务已启动：
+前端默认连接 `http://localhost:5002` 的后端服务。确保后端服务已启动：
 
 ```bash
 cd ../backend

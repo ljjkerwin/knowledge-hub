@@ -569,9 +569,9 @@ export class AgentOrchestrator {
       .addEdge('finalize', END)
       .compile();
 
-    graph.getGraphAsync().then(drawable => {
-      console.log(drawable.drawMermaid({ withStyles: true }));
-    })
+    // graph.getGraphAsync().then(drawable => {
+    //   console.log(drawable.drawMermaid({ withStyles: true }));
+    // })
 
     return graph
   }

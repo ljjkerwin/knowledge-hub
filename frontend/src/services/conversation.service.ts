@@ -17,7 +17,7 @@ export const conversationService = {
     request: ChatRequest,
   ): AsyncGenerator<unknown, void, unknown> {
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/rag/chat/stream`,
+      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002'}/rag/chat/stream`,
       {
         method: 'POST',
         headers: {

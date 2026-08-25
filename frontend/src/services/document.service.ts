@@ -50,7 +50,7 @@ export const documentService = {
     formData.append('file', file);
     Object.entries(metadata).forEach(([key, value]) => value && formData.append(key, value));
     const token = typeof window === 'undefined' ? null : localStorage.getItem('kh_token');
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/documents/upload/parse`, {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002'}/documents/upload/parse`, {
       method: 'POST', body: formData, headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message || '文件上传失败');

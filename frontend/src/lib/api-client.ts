@@ -1,6 +1,6 @@
 import { ApiResponse } from '@/types/api.types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002';
 
 /**
  * API 客户端错误
