@@ -21,6 +21,10 @@ export function ChatInput({ userId }: ChatInputProps) {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // 拼音等 IME 选词时，Enter 用于确认候选词，不能触发消息发送。
+    const isComposing = e.nativeEvent.isComposing || e.keyCode === 229;
+    if (isComposing) return;
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -34,9 +38,8 @@ export function ChatInput({ userId }: ChatInputProps) {
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+        placeholder="输入消息... (Enter 发送)"
         className="min-h-[38px] max-h-[200px] resize-none"
-        disabled={isLoading}
       />
       <Button
         onClick={handleSend}
