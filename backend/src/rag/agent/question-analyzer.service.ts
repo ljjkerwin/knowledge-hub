@@ -147,6 +147,7 @@ export class QuestionAnalyzer {
    - 若当前问题不依赖历史，保留其原意。
    - 若含指代、省略或相对时间，只能用历史中明确出现的信息补全。
    - 不得回答问题、添加历史中没有的事实；无法可靠补全时保留原问题。
+   - 若当前输入无法形成明确问题（如仅含数字、标点或无语义片段），不要猜测其含义：rewritten 必须逐字保留原输入，不能写入“无法理解”等说明；expandedQueries 和 entityTerms 返回空数组，needsRetrieval 为 false，intent 设为 chitchat。
    - 去除口语化表达
    - 补充关键信息
    - 保持原意

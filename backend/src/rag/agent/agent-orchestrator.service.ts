@@ -272,7 +272,7 @@ export class AgentOrchestrator {
           content: `问题意图: ${analysis.intent}, 改写为: "${analysis.rewritten}"`,
         };
 
-        this.logger.verbose('questionAnalyzer' + JSON.stringify(analysis, null, 2));
+        this.logger.verbose(`questionAnalyzer ${JSON.stringify(analysis, null, 2)} originalQuestion: ${originalQuestion}`);
 
         // 后续策略、检索、生成都使用模型生成的独立改写问题。
         currentQuestion = analysis.rewritten;
@@ -283,8 +283,11 @@ export class AgentOrchestrator {
             timestamp: Date.now(),
             content: '该消息无需查询知识库，直接生成回复。',
           };
-          const stream =
-            this.generationService.generateDirectStream(currentQuestion);
+          // 直接回答保留用户本轮原始措辞，并使用历史仅辅助理解对话语境。
+          const stream = this.generationService.generateDirectStream(
+            originalQuestion,
+            context,
+          );
           for await (const chunk of stream) {
             if (chunk.type === 'token') {
               yield {

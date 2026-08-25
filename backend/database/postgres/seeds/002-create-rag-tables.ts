@@ -15,6 +15,8 @@ const statements = [
       id BIGINT PRIMARY KEY,
       user_id BIGINT NOT NULL,
       title VARCHAR,
+      context_summary TEXT,
+      summary_until_message_id BIGINT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       deleted BOOLEAN NOT NULL DEFAULT FALSE

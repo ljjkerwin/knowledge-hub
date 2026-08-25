@@ -17,6 +17,14 @@ export class ConversationEntity {
   @Column({ type: 'varchar', length: 255, nullable: true })
   title: string;
 
+  /** 已压缩的长期对话上下文。 */
+  @Column({ name: 'context_summary', type: 'text', nullable: true })
+  contextSummary: string | null;
+
+  /** contextSummary 已覆盖到的最后一条消息 ID（Snowflake ID 按时间递增）。 */
+  @Column({ name: 'summary_until_message_id', type: 'bigint', nullable: true })
+  summaryUntilMessageId: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

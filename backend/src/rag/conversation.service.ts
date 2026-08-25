@@ -110,6 +110,36 @@ export class ConversationService {
   }
 
   /**
+   * 获取尚未进入长期摘要的消息。消息 ID 为 Snowflake ID，按其递增顺序即消息顺序。
+   */
+  async getHistoryAfter(
+    conversationId: string,
+    afterMessageId?: string | null,
+  ): Promise<MessageEntity[]> {
+    const qb = this.em
+      .createQueryBuilder(MessageEntity, 'message')
+      .where('message.conversation_id = :conversationId', { conversationId });
+
+    if (afterMessageId) {
+      qb.andWhere('message.id > :afterMessageId', { afterMessageId });
+    }
+
+    return qb.orderBy('message.id', 'ASC').getMany();
+  }
+
+  /** 保存滚动摘要及其已覆盖的消息边界。 */
+  async updateContextSummary(
+    conversationId: string,
+    contextSummary: string,
+    summaryUntilMessageId: string,
+  ): Promise<void> {
+    await this.em.update(ConversationEntity, conversationId, {
+      contextSummary,
+      summaryUntilMessageId,
+    });
+  }
+
+  /**
    * 添加消息
    */
   async addMessage(

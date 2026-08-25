@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useRef, KeyboardEvent } from 'react';
+import { useRef, KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useChatStore } from '@/stores/chat.store';
-import { Send, Square } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 
 interface ChatInputProps {
   userId: string;
@@ -45,7 +45,7 @@ export function ChatInput({ userId }: ChatInputProps) {
         className="h-[38px] w-[50px]"
       >
         {isLoading ? (
-          <Square className="h-5 w-5" />
+          <Loader2 className="h-5 w-5 animate-spin" aria-label="发送中" />
         ) : (
           <Send className="h-5 w-5" />
         )}

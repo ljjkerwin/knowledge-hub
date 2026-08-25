@@ -58,7 +58,18 @@ export class RagController {
             req.user.id,
           );
           conversationId = conversation.id;
+
+          // 发送对话 ID
+          subject.next({
+            data: JSON.stringify({
+              type: AguiEventType.METADATA,
+              timestamp: Date.now(),
+              conversationId,
+            }),
+          } as MessageEvent);
+
         } else {
+          // 校验用户是否有权访问指定会话
           await this.conversationService.findOneForUser(
             conversationId,
             req.user.id,
@@ -71,24 +82,12 @@ export class RagController {
           dto.message,
         );
 
-        // 3. 保存用户消息。先持久化，再告知客户端会话 ID，保证客户端刷新后
-        // 能立即从会话历史列表中查询到该会话。
+        // 3. 保存用户消息。
         await this.conversationService.addMessage(
           conversationId,
           'user',
           dto.message,
         );
-
-        this.logger.verbose('conversationId ' + conversationId);
-
-        // 发送对话 ID
-        subject.next({
-          data: JSON.stringify({
-            type: AguiEventType.METADATA,
-            timestamp: Date.now(),
-            conversationId,
-          }),
-        } as MessageEvent);
 
         // 4. 流式执行 Agentic RAG（含上下文改写、问题分析和检索）。
         let answerText = '';
