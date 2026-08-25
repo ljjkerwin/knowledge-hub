@@ -64,7 +64,7 @@ export class DocumentService {
    * 流程：生成雪花 ID → 写 Mongo 正文（拿 ObjectId）→ 写 Postgres 元数据
    * 若 Postgres 写入失败，回滚删除已写入的 Mongo 正文，避免脏数据
    */
-  async create(dto: CreateDocumentDto) {
+  async create(dto: CreateDocumentDto, authenticatedUserId?: string) {
     const requestedStatus = dto.status ?? DocumentStatus.Draft;
     // 创建时不允许直接设为 Archived / PendingReview
     if (
@@ -107,7 +107,9 @@ export class DocumentService {
         summary: dto.summary,
         categoryId: dto.categoryId,
         teamId: dto.teamId,
-        authorId: dto.authorId,
+        // HTTP callers always use the authenticated user as owner. The DTO
+        // values remain as a fallback for trusted internal callers.
+        authorId: authenticatedUserId ?? dto.authorId,
         coverImage: dto.coverImage,
         tags: dto.tags,
         status,
@@ -116,8 +118,8 @@ export class DocumentService {
         wordCount,
         // 创建即发布时，记录发布时间
         publishTime: status === DocumentStatus.Published ? new Date() : null,
-        createBy: dto.createBy,
-        updateBy: dto.createBy,
+        createBy: authenticatedUserId ?? dto.createBy,
+        updateBy: authenticatedUserId ?? dto.createBy,
         deleted: false,
       });
 
@@ -215,10 +217,7 @@ export class DocumentService {
    * 私有文档只允许作者/创建者和管理员读取；公开文档仍必须已经发布。
    * 当前项目没有团队成员关系表，因此不能把 teamId 误当作授权依据。
    */
-  async findOneForReader(
-    id: string,
-    user: { id: string; role: number },
-  ) {
+  async findOneForReader(id: string, user: { id: string; role: number }) {
     const doc = await this.em.findOne(DocumentEntity, {
       where: { id, deleted: false },
     });
@@ -484,6 +483,7 @@ export class DocumentService {
   async uploadAndCreateDocument(
     file: Express.Multer.File,
     meta: UploadParseDto = {},
+    authenticatedUserId?: string,
   ) {
     if (!file?.buffer?.length) {
       throw new BadRequestException('文件不能为空');
@@ -541,18 +541,21 @@ export class DocumentService {
 
     // 创建doc对象
     // 内部会同时创建docContent对象
-    const created = await this.create({
-      title,
-      content: parsedContent,
-      categoryId: meta.categoryId,
-      teamId: meta.teamId,
-      authorId: meta.authorId,
-      tags: meta.tags,
-      remark: meta.remark,
-      createBy: meta.createBy,
-      isPublic: meta.isPublic,
-      status: DocumentStatus.Draft,
-    });
+    const created = await this.create(
+      {
+        title,
+        content: parsedContent,
+        categoryId: meta.categoryId,
+        teamId: meta.teamId,
+        authorId: meta.authorId,
+        tags: meta.tags,
+        remark: meta.remark,
+        createBy: meta.createBy,
+        isPublic: meta.isPublic,
+        status: DocumentStatus.Draft,
+      },
+      authenticatedUserId,
+    );
 
     const previewLen = Math.min(200, parsedContent.length);
     const result = {

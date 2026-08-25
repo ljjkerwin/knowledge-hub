@@ -42,8 +42,8 @@ export class DocumentController {
 
   /** 创建文档 */
   @Post()
-  create(@Body() dto: CreateDocumentDto) {
-    return this.documentService.create(dto);
+  create(@Body() dto: CreateDocumentDto, @Req() req: AuthenticatedRequest) {
+    return this.documentService.create(dto, req.user.id);
   }
 
   /** 上传文件并解析为 Markdown，创建草稿（form-data 字段名: file） */
@@ -56,11 +56,16 @@ export class DocumentController {
   uploadAndParse(
     @UploadedFile() file: Express.Multer.File,
     @Body() meta: UploadParseDto,
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!file) {
       throw new BadRequestException('请上传文件（form-data 字段名: file）');
     }
-    return this.documentService.uploadAndCreateDocument(file, meta);
+    return this.documentService.uploadAndCreateDocument(
+      file,
+      meta,
+      req.user.id,
+    );
   }
 
   /** 审核待办列表（须在 @Get(':id') 之前注册，避免路由被 :id 吃掉） */
