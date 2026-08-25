@@ -226,6 +226,7 @@ ${query}
   private buildCitations(context: RetrievedChunk[]): Citation[] {
     return context.map((chunk, index) => ({
       index: index + 1,
+      chunkId: chunk.chunkId,
       documentId: chunk.documentId,
       documentTitle: chunk.documentTitle,
       chunkContent:

@@ -114,7 +114,7 @@ export class RagController {
           if (event.type === AguiEventType.RETRIEVAL_RESULT) {
             lastCitations = event.chunks.map((c: any, i: number) => ({
               index: i + 1,
-              chunkId: c.documentId,
+              chunkId: c.chunkId,
               documentId: c.documentId,
               documentTitle: c.documentTitle,
               content: c.content,

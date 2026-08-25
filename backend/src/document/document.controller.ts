@@ -8,8 +8,10 @@ import {
   Param,
   Delete,
   Query,
+  Req,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -20,9 +22,18 @@ import { UpdateDocumentDto } from './dto/update-document.dto';
 import { QueryDocumentDto } from './dto/query-document.dto';
 import { UploadParseDto } from './dto/upload-parse.dto';
 import { QueryReviewTasksDto, ReviewDecisionDto } from './dto/review.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+interface AuthenticatedRequest {
+  user: {
+    id: string;
+    role: number;
+  };
+}
 
 /** 文档接口 */
 @Controller('documents')
+@UseGuards(JwtAuthGuard)
 export class DocumentController {
   constructor(
     private readonly documentService: DocumentService,
@@ -136,8 +147,8 @@ export class DocumentController {
 
   /** 查询文档详情（含正文） */
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.documentService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.documentService.findOneForReader(id, req.user);
   }
 
   /** 更新文档 */

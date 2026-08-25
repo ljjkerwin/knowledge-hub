@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Message, Citation } from '@/types/api.types';
 import { User, Bot, FileText } from 'lucide-react';
 import { MarkdownContent } from './markdown-content';
+import Link from 'next/link';
 
 interface MessageBubbleProps {
   message: Message;
@@ -52,9 +53,20 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
 function CitationBadge({ citation, index }: { citation: Citation; index: number }) {
   return (
-    <Badge variant="secondary" className="text-xs cursor-help" title={citation.content}>
-      <FileText className="h-3 w-3 mr-1" />
-      [{index}] {citation.documentTitle}
+    <Badge
+      variant="secondary"
+      className="cursor-pointer p-0 text-xs hover:bg-secondary/70"
+      title={`打开阅读页：${citation.documentTitle}`}
+    >
+      <Link
+        href={`/documents/${citation.documentId}?citation=${encodeURIComponent(citation.chunkId)}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center px-2 py-1"
+      >
+        <FileText className="mr-1 h-3 w-3" />
+        [{index}] {citation.documentTitle}
+      </Link>
     </Badge>
   );
 }

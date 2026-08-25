@@ -221,7 +221,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({
           currentCitations: event.chunks.map((c, i) => ({
             index: i + 1,
-            chunkId: c.documentId,
+            chunkId: c.chunkId,
             documentId: c.documentId,
             documentTitle: c.documentTitle,
             content: c.content,

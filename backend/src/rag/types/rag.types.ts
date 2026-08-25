@@ -19,6 +19,7 @@ export interface RetrievedChunk {
 // 引用信息
 export interface Citation {
   index: number;
+  chunkId: string;
   documentId: string;
   documentTitle: string;
   chunkContent: string;

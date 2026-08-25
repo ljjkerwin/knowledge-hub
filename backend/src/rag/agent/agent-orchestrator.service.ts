@@ -191,7 +191,7 @@ export class AgentOrchestrator {
       `WRRF 融合完成：文本候选=${textResults.reduce((count, result) => count + result.chunks.length, 0)}，图谱候选=${graphResults.reduce((count, result) => count + result.chunks.length, 0)}，精排候选=${fusionCandidates.length}`,
     );
 
-    this.logger.verbose(`[langgraph][fusionCandidates] ${JSON.stringify(fusionCandidates, null, 2)}`)
+    // this.logger.verbose(`[langgraph][fusionCandidates] ${JSON.stringify(fusionCandidates, null, 2)}`)
 
     return this.rerankerService.rerank(
       analysis.rewritten,
@@ -403,6 +403,7 @@ export class AgentOrchestrator {
             type: AguiEventType.RETRIEVAL_RESULT,
             timestamp: Date.now(),
             chunks: chunks.map((chunk) => ({
+              chunkId: chunk.chunkId,
               documentId: chunk.documentId,
               documentTitle: chunk.documentTitle,
               content: `${chunk.content.substring(0, 200)}...`,
@@ -507,6 +508,7 @@ export class AgentOrchestrator {
             type: AguiEventType.RETRIEVAL_RESULT,
             timestamp: Date.now(),
             chunks: answer.citations.map((citation) => ({
+              chunkId: citation.chunkId,
               documentId: citation.documentId,
               documentTitle: citation.documentTitle,
               content: citation.chunkContent,

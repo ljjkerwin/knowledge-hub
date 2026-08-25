@@ -72,6 +72,7 @@ export interface AguiRetrievalStartEvent extends AguiBaseEvent {
 export interface AguiRetrievalResultEvent extends AguiBaseEvent {
   type: AguiEventType.RETRIEVAL_RESULT;
   chunks: Array<{
+    chunkId: string;
     documentId: string;
     documentTitle: string;
     content: string;
