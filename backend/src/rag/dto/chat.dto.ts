@@ -16,13 +16,6 @@ export class ChatDto {
   @IsString()
   conversationId?: string;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(5)
-  maxIterations?: number = 2;
-
   /** 评估 Runner 使用：在检索事件中返回完整 chunk，普通聊天保持 200 字预览。 */
   @IsOptional()
   @IsBoolean()

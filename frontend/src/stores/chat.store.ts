@@ -79,7 +79,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const stream = conversationService.chatStream({
         message: input,
         conversationId: conversationId || undefined,
-        streamResponse: true,
       });
 
       for await (const event of stream) {

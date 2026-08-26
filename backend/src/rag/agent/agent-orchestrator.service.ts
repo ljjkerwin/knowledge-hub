@@ -653,7 +653,7 @@ export class AgentOrchestrator {
   async *queryStream(input: QueryStreamInput): AsyncGenerator<AguiEventUnion> {
     const { question: originalQuestion, context, ...options } = input;
     const queryId = this.generateQueryId();
-    const maxIter = options?.maxIterations || this.maxIterations;
+    const maxIter = this.maxIterations;
     const langfuseHandler = new CallbackHandler();
     yield {
       type: AguiEventType.METADATA,

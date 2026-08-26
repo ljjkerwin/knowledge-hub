@@ -118,8 +118,6 @@ export interface Message {
 export interface ChatRequest {
   message: string;
   conversationId?: string;
-  maxIterations?: number;
-  streamResponse?: boolean;
 }
 
 /**

@@ -120,7 +120,6 @@ export type AguiEventUnion =
 
 // AGUI 流式响应选项
 export interface AguiStreamOptions {
-  maxIterations?: number;
   enableFollowUp?: boolean;
   /** 仅用于离线评估：检索事件携带完整 chunk，便于证据级判分。 */
   evaluationMode?: boolean;

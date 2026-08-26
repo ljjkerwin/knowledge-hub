@@ -70,7 +70,6 @@ if (options.replay) {
   const replayReport = buildReport({
     datasetPath,
     baseUrl: previousReport.metadata?.baseUrl ?? baseUrl,
-    maxIterations: previousReport.metadata?.maxIterations ?? 0,
     results: replayResults,
   });
   replayReport.metadata.replayedFrom = resolve(options.replay);
@@ -90,10 +89,6 @@ if (options.replay) {
 
 const token = await resolveToken(baseUrl, options);
 const concurrency = positiveInteger(options.concurrency ?? 1, '--concurrency');
-const maxIterations = positiveInteger(
-  options.maxIterations ?? 2,
-  '--max-iterations',
-);
 
 console.log(
   `running ${selectedRows.length} cases: baseUrl=${baseUrl}, concurrency=${concurrency}`,
@@ -113,7 +108,6 @@ async function worker() {
         row,
         baseUrl,
         token,
-        maxIterations,
         keepConversations: options.keepConversations,
       });
       results[index] = result;
@@ -137,7 +131,6 @@ await Promise.all(Array.from({ length: concurrency }, () => worker()));
 const report = buildReport({
   datasetPath,
   baseUrl,
-  maxIterations,
   results,
 });
 
@@ -157,7 +150,6 @@ async function runCase({
   row,
   baseUrl,
   token,
-  maxIterations,
   keepConversations,
 }) {
   let conversationId;
@@ -173,7 +165,6 @@ async function runCase({
         token,
         message: message.content,
         conversationId,
-        maxIterations,
       });
       conversationId = warmup.conversationId ?? conversationId;
       if (warmup.error)
@@ -185,7 +176,6 @@ async function runCase({
       token,
       message: row.question,
       conversationId,
-      maxIterations,
     });
     conversationId = actual.conversationId ?? conversationId;
     if (actual.error) throw new Error(actual.error);
@@ -221,7 +211,6 @@ async function streamChat({
   token,
   message,
   conversationId,
-  maxIterations,
 }) {
   const response = await fetch(`${baseUrl}/rag/chat/stream`, {
     method: 'POST',
@@ -233,7 +222,6 @@ async function streamChat({
     body: JSON.stringify({
       message,
       conversationId,
-      maxIterations,
       // 普通聊天只返回片段预览；评估必须拿到完整 chunk 才能计算证据召回。
       evaluationMode: true,
     }),
@@ -449,7 +437,7 @@ function scoreCase(row, actual) {
   };
 }
 
-function buildReport({ datasetPath, baseUrl, maxIterations, results }) {
+function buildReport({ datasetPath, baseUrl, results }) {
   const successful = results.filter((result) => !result.error);
   const passed = results.filter((result) => result.pass).length;
   const latencies = successful
@@ -583,7 +571,6 @@ function buildReport({ datasetPath, baseUrl, maxIterations, results }) {
       createdAt: new Date().toISOString(),
       datasetPath,
       baseUrl,
-      maxIterations,
     },
     summary: {
       total: results.length,
@@ -718,7 +705,6 @@ Options:
   --slice <name>            只运行指定 slice
   --limit <number>          只运行前 N 条
   --concurrency <number>    并发数，默认 1
-  --max-iterations <number> Agent 最大迭代次数，默认 2
   --output <path>           将完整报告写入 JSON 文件
   --replay <report-path>    使用历史报告 actual 数据重新判分，不请求后端
   --keep-conversations      保留本次评估创建的会话

@@ -12,6 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
+import { LangfuseClient } from '@langfuse/client';
+import { LangfuseSpan, startActiveObservation } from '@langfuse/tracing';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
 import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
@@ -29,6 +31,10 @@ interface AuthenticatedRequest {
 @UseGuards(JwtAuthGuard)
 export class RagController {
   private readonly logger = new Logger(RagController.name);
+  private readonly langfuse =
+    process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY
+      ? new LangfuseClient()
+      : undefined;
 
   constructor(
     private readonly agentOrchestrator: AgentOrchestrator,
@@ -49,8 +55,15 @@ export class RagController {
   ): Promise<Observable<MessageEvent>> {
     const subject = new Subject<MessageEvent>();
 
-    (async () => {
+    void startActiveObservation('rag.chat.stream', async (span) => {
       try {
+        span.update({
+          input: {
+            messageLength: dto.message.length,
+            evaluationMode: dto.evaluationMode ?? false,
+          },
+        });
+
         // 1. 获取或创建对话
         let conversationId = dto.conversationId;
         if (!conversationId) {
@@ -90,11 +103,13 @@ export class RagController {
         let lastQueryId = '';
         let lastCitations: any[] = []; // 引用
         let lastConfidence = 0;
+        let didComplete = false;
+        let streamError: string | undefined;
+        let totalIterations = 0;
 
         for await (const event of this.agentOrchestrator.queryStream({
           question: dto.message,
           context,
-          maxIterations: dto.maxIterations,
           enableFollowUp: true,
           evaluationMode: dto.evaluationMode,
         })) {
@@ -123,7 +138,23 @@ export class RagController {
           }
           if (event.type === AguiEventType.DONE) {
             lastQueryId = event.queryId;
+            totalIterations = event.totalIterations;
+            didComplete = true;
           }
+          if (event.type === AguiEventType.ERROR) {
+            streamError = event.message;
+          }
+        }
+
+        // queryStream 会将 Agent 内部异常转为 ERROR 事件，因此不能仅依赖 catch
+        // 判断请求是否成功；没有 DONE 的流也不能保存为一条正常的助手消息。
+        if (streamError || !didComplete) {
+          this.recordRequestSuccess(span, false, {
+            conversationId,
+            queryId: lastQueryId || undefined,
+            reason: streamError ?? 'stream_completed_without_done',
+          });
+          return;
         }
 
         // 5. 保存助手消息
@@ -137,21 +168,55 @@ export class RagController {
             confidence: lastConfidence,
           },
         );
+
+        this.recordRequestSuccess(span, true, {
+          conversationId,
+          queryId: lastQueryId,
+          totalIterations,
+        });
       } catch (error) {
-        this.logger.error(`对话流式查询失败: ${error.message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(`对话流式查询失败: ${message}`);
+        this.recordRequestSuccess(span, false, { reason: message });
         subject.next({
           data: JSON.stringify({
             type: AguiEventType.ERROR,
             timestamp: Date.now(),
-            message: error.message,
+            message,
           }),
         } as MessageEvent);
       } finally {
         subject.complete();
       }
-    })();
+    });
 
     return subject.asObservable();
+  }
+
+  /**
+   * request_success 是接口级业务结果：仅当收到 DONE 且助手消息落库成功时为 true。
+   * Langfuse 的 LangChain Callback 只感知链和模型调用，无法推断这个 HTTP/SSE 结果。
+   */
+  private recordRequestSuccess(
+    span: LangfuseSpan,
+    success: boolean,
+    metadata: Record<string, unknown>,
+  ): void {
+    span.update({
+      output: { requestSuccess: success },
+      metadata,
+      level: success ? 'DEFAULT' : 'ERROR',
+      statusMessage: success ? 'SSE chat completed' : 'SSE chat failed',
+    });
+    this.langfuse?.score.trace(
+      { otelSpan: span.otelSpan },
+      {
+        name: 'rag.request.success',
+        value: success ? 1 : 0,
+        dataType: 'BOOLEAN',
+        metadata,
+      },
+    );
   }
 
   // ==================== 对话管理 ====================
