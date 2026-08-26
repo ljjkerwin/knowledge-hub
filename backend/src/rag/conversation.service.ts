@@ -17,6 +17,11 @@ export interface ConversationList {
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
+  /**
+   * Snowflake 的序列号状态必须在进程内共享。若每次创建会话/消息都新建实例，
+   * 并发请求可能在同一毫秒得到相同 ID，触发数据库主键冲突。
+   */
+  private readonly snowflake = new SnowflakeId();
 
   constructor(
     @InjectEntityManager()
@@ -27,9 +32,8 @@ export class ConversationService {
    * 创建对话
    */
   async create(userId: string, title?: string): Promise<ConversationEntity> {
-    const snowflake = new SnowflakeId();
     const conversation = this.em.create(ConversationEntity, {
-      id: snowflake.generate().toString(),
+      id: this.generateId(),
       userId,
       title: title || '新对话',
     });
@@ -152,9 +156,8 @@ export class ConversationService {
       confidence?: number;
     },
   ): Promise<MessageEntity> {
-    const snowflake = new SnowflakeId();
     const message = this.em.create(MessageEntity, {
-      id: snowflake.generate().toString(),
+      id: this.generateId(),
       conversationId,
       role,
       content,
@@ -197,7 +200,6 @@ export class ConversationService {
    * 生成对话 ID
    */
   generateId(): string {
-    const snowflake = new SnowflakeId();
-    return snowflake.generate().toString();
+    return this.snowflake.generate().toString();
   }
 }

@@ -10,6 +10,7 @@ export class RetrievalService {
   private readonly topK: number;
   private readonly similarityThreshold: number;
   private readonly keywordScoreThreshold: number;
+  private readonly keywordScoreFloor: number;
 
   constructor(
     private readonly es: ElasticsearchService,
@@ -22,6 +23,9 @@ export class RetrievalService {
     );
     this.keywordScoreThreshold = Number(
       this.config.get('RAG_KEYWORD_SCORE_THRESHOLD', 10),
+    );
+    this.keywordScoreFloor = Number(
+      this.config.get('RAG_KEYWORD_SCORE_FLOOR', 1),
     );
   }
 
@@ -113,7 +117,11 @@ export class RetrievalService {
         body: {
           query: {
             bool: {
-              must: [
+              should: [
+                // 精确短语优先，解决制度名、公司名、项目编号被长查询稀释的问题。
+                { match_phrase: { content: { query, boost: 4 } } },
+                { match_phrase: { heading: { query, boost: 3 } } },
+                { match_phrase: { document_title: { query, boost: 3 } } },
                 {
                   multi_match: {
                     query,
@@ -123,6 +131,7 @@ export class RetrievalService {
                   },
                 },
               ],
+              minimum_should_match: 1,
               filter: this.buildFilters(options),
             },
           },
@@ -143,8 +152,21 @@ export class RetrievalService {
         },
       });
 
+      // 固定阈值 10 对短词和中文分词过于苛刻。以本批最高分的一半作为自适应
+      // 阈值，并保留可配置下限；后续还有融合与 reranker 负责过滤噪声。
+      const topScore = Math.max(
+        0,
+        ...response.hits.hits.map((hit) => hit._score ?? 0),
+      );
+      const effectiveThreshold =
+        topScore > 0
+          ? Math.max(
+              this.keywordScoreFloor,
+              Math.min(threshold, topScore * 0.5),
+            )
+          : threshold;
       const chunks: RetrievedChunk[] = response.hits.hits
-        .filter((hit) => hit._score != null && hit._score >= threshold)
+        .filter((hit) => hit._score != null && hit._score >= effectiveThreshold)
         .map((hit) => {
           const source = hit._source as any;
           return {
@@ -165,7 +187,9 @@ export class RetrievalService {
           };
         });
 
-      this.logger.log(`关键词检索完成，返回 ${chunks.length} 个结果`);
+      this.logger.log(
+        `关键词检索完成，返回 ${chunks.length} 个结果，阈值=${effectiveThreshold.toFixed(2)}`,
+      );
       return chunks;
     } catch (error) {
       this.logger.error(`关键词检索失败: ${error.message}`);

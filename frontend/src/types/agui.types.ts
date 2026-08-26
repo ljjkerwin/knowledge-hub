@@ -89,6 +89,9 @@ export interface AguiEvaluationEvent extends AguiBaseEvent {
   completeness: number;
   confidence: number;
   needsFollowUp: boolean;
+  followUpQuestion?: string;
+  missingAspects?: string[];
+  followUpQueries?: string[];
 }
 
 /**

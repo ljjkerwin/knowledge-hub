@@ -14,7 +14,7 @@
 - `id`：稳定样本编号。
 - `slice`：评估切片，用于定位具体能力退化。
 - `question` / `history`：本轮输入和可选的历史对话。
-- `expected_analysis`：期望意图、检索判断、改写关键词和实体词。
+- `expected_analysis`：期望意图、检索判断、改写关键词和实体词。`acceptable_intents` 可声明多个合理意图；`rewritten_contains` 的嵌套数组表示同义表达命中任意一个即可。
 - `expected_strategy`：期望的文本检索类型及是否启用知识图谱。`null` 表示应直接回答。
 - `gold.document_titles`：期望召回的文档标题；跨文档问题应全部命中。
 - `gold.evidence_groups`：黄金证据组。外层数组表示“必须全部覆盖的证据点”，同一个内层数组中的字符串应在同一召回片段中共同出现。
@@ -22,7 +22,7 @@
 - `gold.forbidden_facts`：答案不得声称的内容，用于检测幻觉和错误数字。
 - `tags`：更细粒度的能力标签。
 
-`expected_strategy` 描述的是当前代码应产生的可观测行为。例如包含 `SOP-PE-2026-003`、`CRM`、`SRE` 等强精确词的问题，当前 `StrategySelector` 会选择关键词检索并关闭图谱；`P99`、`M3` 这类单字母加数字的术语目前不会命中该规则，因此作为 `routing-edge` 保留，用于捕获路由规则的真实效果与后续改动。
+`expected_strategy` 描述的是当前代码应产生的可观测行为。自然语言中包含 `SOP-PE-2026-003`、`CRM`、`SRE` 等精确词时使用关键词增强的 Hybrid，不再关闭向量或关系题所需的图谱；只有输入本身是纯编号/版本号时才使用 keyword-only，并在零召回时回退向量检索。`P99`、`M3` 这类单字母加数字术语仍作为 `routing-edge` 保留，用于观察精确词识别边界。
 
 ## 推荐指标
 
@@ -86,6 +86,8 @@ node evaluation/validate-dataset.mjs
 2. 将两份测试 PDF 发布并完成向量索引、关键词索引和知识图谱构建。
 3. 准备一个可登录的测试用户或 JWT。
 
+> 文档解析规则更新后，已有文档不会自动重写历史 chunk。需重新解析并重建向量、关键词和图谱索引后，检索才能受益于文本归一化修复；仅重新跑评估不会改变已入库的内容。
+
 在 `backend` 目录先运行少量样本确认环境：
 
 ```bash
@@ -111,6 +113,18 @@ EVAL_TOKEN='<jwt>' pnpm eval:dataset -- --slice knowledge-graph
 
 常用参数可通过 `pnpm eval:dataset -- --help` 查看。默认并发为 1，建议确认模型、Embedding、Elasticsearch 和 Neo4j 的限流能力后再提高。Runner 默认删除评估过程中创建的会话；调试时可加 `--keep-conversations`。
 
-Runner 当前执行确定性判分：意图、检索判断、改写关键词、实体词、检索类型、图谱路由、黄金文档召回、证据组召回、禁止事实字面命中和答案是否为空。`required_facts` 的字面覆盖率会写入报告但不参与 PASS/FAIL，因为生成答案通常存在同义表达；正式评估建议再增加 LLM Judge 进行语义事实覆盖与引用忠实度判分。
+Runner 会以 `evaluationMode=true` 请求聊天接口，使检索事件携带完整 chunk；普通聊天仍只返回 200 字预览。PASS/FAIL 的任务门禁包括检索决策、检索策略、图谱路由、黄金文档、完整证据、禁止事实、无答案校准和答案非空。意图、改写关键词和实体词仍会统计，但不会因合理意图歧义或同义改写直接判整条任务失败。
+
+报告的 `summary.metrics` 按层输出正式指标，包括分析与路由准确率、Gold Document Recall、Evidence Group Recall、All-evidence Success Rate、无答案校准、禁止事实违规率、平均迭代次数、Follow-up 比例和 P50/P95 延迟。`required_facts` 的字面覆盖率只作为观察值，因为生成答案通常存在同义表达；正式评估仍建议增加 LLM Judge 进行语义事实覆盖与引用忠实度判分。
+
+修改黄金集或评分规则后，可以用已有报告快速重新判分，不调用后端和大模型：
+
+```bash
+pnpm eval:dataset -- \
+  --replay evaluation/reports/full.1.json \
+  --output evaluation/reports/full.1.rescored.json
+```
+
+历史报告中的召回内容如果已经被截断为 200 字，离线重判无法恢复完整证据，因此 Evidence Group Recall 的修复效果需要重新在线运行一次完整评估。
 
 首版数据适合做开发集和流程打通，不应直接作为最终测试集。后续应从真实用户 Trace 中抽取失败样本，去重并人工标注后建立独立、冻结的 test split；调 Prompt 或路由规则时只看 dev split，避免评估集过拟合。

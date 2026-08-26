@@ -62,6 +62,38 @@ for (const [index, line] of lines.entries()) {
   if (typeof row.gold?.answerable !== 'boolean')
     errors.push(`line ${lineNumber}: gold.answerable must be boolean`);
 
+  if (!Array.isArray(row.expected_analysis?.rewritten_contains)) {
+    errors.push(
+      `line ${lineNumber}: expected_analysis.rewritten_contains must be an array`,
+    );
+  } else {
+    for (const requirement of row.expected_analysis.rewritten_contains) {
+      const valid =
+        typeof requirement === 'string' ||
+        (Array.isArray(requirement) &&
+          requirement.length > 0 &&
+          requirement.every((item) => typeof item === 'string'));
+      if (!valid) {
+        errors.push(
+          `line ${lineNumber}: rewritten_contains entries must be strings or non-empty string arrays`,
+        );
+      }
+    }
+  }
+
+  if (
+    row.expected_analysis?.acceptable_intents !== undefined &&
+    (!Array.isArray(row.expected_analysis.acceptable_intents) ||
+      row.expected_analysis.acceptable_intents.length === 0 ||
+      !row.expected_analysis.acceptable_intents.every(
+        (intent) => typeof intent === 'string',
+      ))
+  ) {
+    errors.push(
+      `line ${lineNumber}: expected_analysis.acceptable_intents must be a non-empty string array`,
+    );
+  }
+
   // 黄金文档、证据、必含事实和禁止事实统一使用数组，便于 Runner 逐项判分。
   for (const field of [
     'document_titles',
@@ -71,6 +103,20 @@ for (const [index, line] of lines.entries()) {
   ]) {
     if (!Array.isArray(row.gold?.[field]))
       errors.push(`line ${lineNumber}: gold.${field} must be an array`);
+  }
+
+  if (
+    Array.isArray(row.gold?.evidence_groups) &&
+    !row.gold.evidence_groups.every(
+      (group) =>
+        Array.isArray(group) &&
+        group.length > 0 &&
+        group.every((needle) => typeof needle === 'string'),
+    )
+  ) {
+    errors.push(
+      `line ${lineNumber}: gold.evidence_groups entries must be non-empty string arrays`,
+    );
   }
 
   // 检索决策与策略必须一致：直答样本不能配置检索策略，RAG 样本必须配置。

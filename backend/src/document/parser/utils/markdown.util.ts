@@ -1,7 +1,32 @@
-/** 规范化 Markdown：统一换行，压缩连续空行，去首尾空白 */
+/**
+ * 部分 PDF 的字体子集会把常用汉字提取为 CJK 部首兼容字形（如「⻓」）。
+ * 这些字形肉眼可读，但不会和用户查询或已有索引中的「长」匹配，因而会降低
+ * 关键词检索、向量检索及评估中的文本命中率。
+ */
+const PDF_COMPATIBILITY_GLYPHS: Record<string, string> = {
+  '⻅': '见',
+  '⻆': '角',
+  '⻋': '车',
+  '⻓': '长',
+  '⻔': '门',
+  '⻛': '风',
+  '⻜': '飞',
+};
+
+/**
+ * 在入库前统一 Unicode 兼容形式，并修正 PDF 文本提取器遗留的部首字形。
+ * 该函数应只用于提取后的纯文本，不处理文件名或原始二进制内容。
+ */
+export function normalizeExtractedText(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/[⻅⻆⻋⻓⻔⻛⻜]/g, (glyph) => PDF_COMPATIBILITY_GLYPHS[glyph]);
+}
+
+/** 规范化 Markdown：统一字形与换行，压缩连续空行，去首尾空白 */
 export function cleanMarkdown(text: string): string {
   if (!text) return '';
-  return text
+  return normalizeExtractedText(text)
     .replace(/\r\n/g, '\n')
     .replace(/\n{4,}/g, '\n\n\n')
     .trim();

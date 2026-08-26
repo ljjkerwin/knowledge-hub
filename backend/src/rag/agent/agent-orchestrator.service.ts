@@ -149,11 +149,30 @@ export class AgentOrchestrator {
             //   );
             //   return chunks
             // })
-            .then((chunks) => ({
-              source: 'keyword',
-              chunks,
-              weight: strategy.sourceWeights.keyword * weight,
-            })),
+            .then(async (chunks) => {
+              if (chunks.length || strategy.searchType !== SearchType.KEYWORD) {
+                return {
+                  source: 'keyword' as const,
+                  chunks,
+                  weight: strategy.sourceWeights.keyword * weight,
+                };
+              }
+
+              // 纯编号通常适合关键词检索，但索引分词或阈值可能造成零召回；
+              // 此时回退向量检索，避免直接带着空上下文进入生成阶段。
+              this.logger.warn(
+                `关键词检索零召回，回退向量检索：query="${query}"`,
+              );
+              const fallbackChunks = await this.retrievalService.vectorSearch(
+                query,
+                searchOptions,
+              );
+              return {
+                source: 'vector' as const,
+                chunks: fallbackChunks,
+                weight: Math.max(strategy.sourceWeights.vector, 0.8) * weight,
+              };
+            }),
         );
       }
     }
@@ -207,10 +226,31 @@ export class AgentOrchestrator {
     strategy: RetrievalStrategy,
     originalQuery?: string,
   ): WeightedQuery[] {
+    const entityQueries = Array.from(
+      new Set(
+        (analysis.entityTerms ?? [])
+          .map((term) => term.trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, 4);
+    const shouldDecompose =
+      entityQueries.length >= 2 &&
+      (analysis.intent === QueryIntent.COMPARATIVE ||
+        strategy.useKnowledgeGraph);
+    const baseRewrittenWeight = shouldDecompose ? 0.45 : 0.75;
+    const entityTotalWeight = shouldDecompose ? 0.3 : 0;
+
     const candidates: WeightedQuery[] = [
-      { query: analysis.rewritten, weight: 0.75 },
+      { query: analysis.rewritten, weight: baseRewrittenWeight },
       { query: originalQuery ?? '', weight: 0.15 },
     ];
+
+    // 比较题和关系题按实体补充子查询，避免一个强势实体占满候选池，
+    // 导致跨文档问题只召回其中一侧。
+    if (shouldDecompose) {
+      const weight = entityTotalWeight / entityQueries.length;
+      candidates.push(...entityQueries.map((query) => ({ query, weight })));
+    }
 
     if (strategy.expandQuery) {
       const expanded = analysis.expandedQueries.slice(0, 3);
@@ -229,7 +269,7 @@ export class AgentOrchestrator {
       else unique.set(key, { query, weight: candidate.weight });
     }
 
-    const queries = Array.from(unique.values()).slice(0, 5);
+    const queries = Array.from(unique.values()).slice(0, 6);
     const totalWeight = queries.reduce((sum, item) => sum + item.weight, 0);
     return totalWeight > 0
       ? queries.map((item) => ({ ...item, weight: item.weight / totalWeight }))
@@ -354,6 +394,7 @@ export class AgentOrchestrator {
         const strategy = this.strategySelector.selectStrategy(
           state.analysis!.intent,
           state.retrievalQuestion,
+          state.originalQuestion,
         );
         this.emit(
           {
@@ -411,7 +452,9 @@ export class AgentOrchestrator {
               chunkId: chunk.chunkId,
               documentId: chunk.documentId,
               documentTitle: chunk.documentTitle,
-              content: `${chunk.content.substring(0, 200)}...`,
+              content: state.options.evaluationMode
+                ? chunk.content
+                : `${chunk.content.substring(0, 200)}...`,
               similarity: chunk.similarity,
             })),
           },
@@ -455,6 +498,8 @@ export class AgentOrchestrator {
             completeness: evaluation.completeness,
             needsFollowUp: evaluation.needsFollowUp,
             followUpQuestion: evaluation.followUpQuestion,
+            missingAspects: evaluation.missingAspects,
+            followUpQueries: evaluation.followUpQueries,
           },
           config,
         );
@@ -473,11 +518,25 @@ export class AgentOrchestrator {
             bestRelevance: Math.max(state.bestRelevance, evaluation.relevance),
             shouldContinue: false,
           };
-        const nextQuestion =
-          evaluation.followUpQuestion ||
-          state.analysis!.expandedQueries.find(
-            (query) => !state.retrievalQuestion.includes(query),
-          );
+        const normalizedCurrent = state.retrievalQuestion
+          .normalize('NFKC')
+          .toLocaleLowerCase();
+        const nextQuestion = [
+          ...evaluation.followUpQueries,
+          evaluation.followUpQuestion,
+          ...state.analysis!.expandedQueries,
+        ]
+          .filter((query): query is string => Boolean(query?.trim()))
+          .find((query) => {
+            const normalized = query
+              .trim()
+              .normalize('NFKC')
+              .toLocaleLowerCase();
+            return (
+              normalized !== normalizedCurrent &&
+              !normalizedCurrent.includes(normalized)
+            );
+          });
         if (!nextQuestion)
           return {
             evaluation,
@@ -613,7 +672,7 @@ export class AgentOrchestrator {
         },
         {
           streamMode: 'custom',
-          callbacks: [langfuseHandler],
+          // callbacks: [langfuseHandler],
         },
       );
       for await (const event of stream) yield event as AguiEventUnion;

@@ -81,6 +81,8 @@ export interface AguiEvaluationEvent extends AguiEvent {
   completeness: number;
   needsFollowUp: boolean;
   followUpQuestion?: string;
+  missingAspects?: string[];
+  followUpQueries?: string[];
 }
 
 // 错误事件
@@ -120,6 +122,8 @@ export type AguiEventUnion =
 export interface AguiStreamOptions {
   maxIterations?: number;
   enableFollowUp?: boolean;
+  /** 仅用于离线评估：检索事件携带完整 chunk，便于证据级判分。 */
+  evaluationMode?: boolean;
   userId?: string;
   categoryId?: string;
   teamId?: string;

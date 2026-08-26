@@ -14,6 +14,8 @@ export interface EvaluationResult {
   confidence: number; // 置信度（0-1）
   needsFollowUp: boolean; // 是否需要追问
   followUpQuestion?: string; // 追问建议
+  missingAspects: string[]; // 当前答案缺失的具体方面
+  followUpQueries: string[]; // 针对缺口生成的检索查询
   reasoning: string; // 评估理由
 }
 
@@ -26,6 +28,16 @@ const evaluationSchema = z.object({
     .string()
     .optional()
     .describe('如果需要追问，建议的追问问题'),
+  missingAspects: z
+    .array(z.string())
+    .max(3)
+    .optional()
+    .describe('当前答案未覆盖的具体信息点；答案完整时返回空数组'),
+  followUpQueries: z
+    .array(z.string())
+    .max(3)
+    .optional()
+    .describe('针对缺失信息点生成的独立知识库检索查询；无需补检索时返回空数组'),
   reasoning: z.string().describe('评估理由'),
 });
 
@@ -69,6 +81,8 @@ export class AnswerEvaluator {
         confidence: answer.retrievalConfidence,
         needsFollowUp: validated.needsFollowUp,
         followUpQuestion: validated.followUpQuestion,
+        missingAspects: validated.missingAspects ?? [],
+        followUpQueries: validated.followUpQueries ?? [],
         reasoning: validated.reasoning,
       };
 
@@ -117,6 +131,9 @@ export class AnswerEvaluator {
 - 答案模糊或不确定时，建议追问
 - 问题涉及多个方面但答案只覆盖部分时，建议追问
 - 答案质量足够好时，不需要追问
+- missingAspects 必须指出答案缺少的具体实体、条件、步骤或对比项，不要写“信息不足”等泛化描述
+- followUpQueries 必须是可脱离上下文执行的知识库检索语句，直接针对 missingAspects；不要向用户索要信息
+- 若答案声称资料中没有某项信息，但用户问题包含多个实体，分别为未覆盖实体生成检索查询
 
 `;
   }
@@ -163,6 +180,8 @@ ${citationsText}
       confidence: answer.retrievalConfidence,
       needsFollowUp: !hasCitations || !isLongEnough,
       followUpQuestion: !hasCitations ? '能否提供更多信息来源？' : undefined,
+      missingAspects: !hasCitations ? [question] : [],
+      followUpQueries: !hasCitations ? [question] : [],
       reasoning: '基于简单规则评估（LLM 评估失败）',
     };
   }

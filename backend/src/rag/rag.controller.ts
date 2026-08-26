@@ -100,6 +100,7 @@ export class RagController {
           context,
           maxIterations: dto.maxIterations,
           enableFollowUp: true,
+          evaluationMode: dto.evaluationMode,
           userId: req.user.id,
         })) {
           subject.next({

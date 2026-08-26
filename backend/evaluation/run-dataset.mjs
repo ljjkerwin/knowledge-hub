@@ -36,6 +36,58 @@ const baseUrl = (
   process.env.EVAL_BASE_URL ??
   'http://localhost:5002'
 ).replace(/\/$/, '');
+
+// 使用历史报告中的 actual 数据重新执行判分，便于修改黄金集或评分规则后快速验证。
+// 旧报告若只包含 200 字预览，证据召回仍会受旧数据限制；完整证据需重新在线运行。
+if (options.replay) {
+  const previousReport = JSON.parse(
+    await readFile(resolve(options.replay), 'utf8'),
+  );
+  const previousById = new Map(
+    previousReport.results.map((result) => [result.id, result]),
+  );
+  const replayResults = selectedRows.map((row) => {
+    const previous = previousById.get(row.id);
+    if (!previous?.actual) {
+      return {
+        id: row.id,
+        slice: row.slice,
+        pass: false,
+        error: 'previous report does not contain actual data for this case',
+      };
+    }
+    const assertions = scoreCase(row, previous.actual);
+    return {
+      id: row.id,
+      slice: row.slice,
+      question: row.question,
+      pass: Object.values(assertions.gates).every(Boolean),
+      latencyMs: previous.latencyMs,
+      assertions,
+      actual: previous.actual,
+    };
+  });
+  const replayReport = buildReport({
+    datasetPath,
+    baseUrl: previousReport.metadata?.baseUrl ?? baseUrl,
+    maxIterations: previousReport.metadata?.maxIterations ?? 0,
+    results: replayResults,
+  });
+  replayReport.metadata.replayedFrom = resolve(options.replay);
+  printSummary(replayReport.summary);
+  if (options.output) {
+    const outputPath = resolve(options.output);
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(
+      outputPath,
+      `${JSON.stringify(replayReport, null, 2)}\n`,
+      'utf8',
+    );
+    console.log(`report written to ${outputPath}`);
+  }
+  process.exit(replayReport.summary.failed > 0 ? 1 : 0);
+}
+
 const token = await resolveToken(baseUrl, options);
 const concurrency = positiveInteger(options.concurrency ?? 1, '--concurrency');
 const maxIterations = positiveInteger(
@@ -143,7 +195,9 @@ async function runCase({
       id: row.id,
       slice: row.slice,
       question: row.question,
-      pass: Object.values(assertions.deterministic).every(Boolean),
+      // PASS/FAIL 只由任务关键门禁决定；改写措辞、实体词和意图仍作为诊断指标，
+      // 但不因同义表达或合理的意图歧义将一条正确任务判失败。
+      pass: Object.values(assertions.gates).every(Boolean),
       latencyMs: performance.now() - startedAt,
       assertions,
       actual,
@@ -176,7 +230,13 @@ async function streamChat({
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ message, conversationId, maxIterations }),
+    body: JSON.stringify({
+      message,
+      conversationId,
+      maxIterations,
+      // 普通聊天只返回片段预览；评估必须拿到完整 chunk 才能计算证据召回。
+      evaluationMode: true,
+    }),
   });
 
   if (!response.ok) {
@@ -285,6 +345,9 @@ function scoreCase(row, actual) {
   const expectedStrategy = row.expected_strategy;
   const normalizedAnswer = normalize(actual.answer);
   const expectedDocuments = row.gold.document_titles;
+  // 无答案且没有黄金证据的样本允许“零召回后正确拒答”；有黄金证据时仍要求召回。
+  const documentsRequired =
+    row.gold.answerable || row.gold.evidence_groups.length > 0;
   const recalledDocuments = expectedDocuments.filter((title) =>
     actual.chunks.some((chunk) => sameLooseText(chunk.documentTitle, title)),
   );
@@ -295,10 +358,11 @@ function scoreCase(row, actual) {
       ),
     ),
   );
-  const rewrittenChecks = expected.rewritten_contains.map((needle) => ({
-    needle,
-    matched: normalize(actual.rewritten ?? row.question).includes(
-      normalize(needle),
+  const rewrittenChecks = expected.rewritten_contains.map((requirement) => ({
+    requirement,
+    matched: matchTextRequirement(
+      actual.rewritten ?? row.question,
+      requirement,
     ),
   }));
   const entityChecks = expected.entity_terms_any.map((term) => ({
@@ -309,15 +373,25 @@ function scoreCase(row, actual) {
   }));
   const forbiddenChecks = row.gold.forbidden_facts.map((fact) => ({
     fact,
-    violated: normalizedAnswer.includes(normalize(fact)),
+    violated: containsPositiveAssertion(normalizedAnswer, normalize(fact)),
   }));
   const requiredLiteralChecks = row.gold.required_facts.map((fact) => ({
     fact,
     matched: normalizedAnswer.includes(normalize(fact)),
   }));
+  const acceptableIntents = expected.acceptable_intents ?? [expected.intent];
+  const unanswerableAcknowledged =
+    row.gold.answerable !== false ||
+    /(未提供|没有提供|无法确认|不能确认|未找到|知识库中没有|无法回答|资料不足|信息不足)/.test(
+      actual.answer,
+    );
+  const documentRecallPassed =
+    !documentsRequired || recalledDocuments.length === expectedDocuments.length;
+  const allEvidencePassed =
+    recalledEvidenceGroups.length === row.gold.evidence_groups.length;
 
   const deterministic = {
-    intent: actual.intent === expected.intent,
+    intent: acceptableIntents.includes(actual.intent),
     retrievalDecision: actual.needsRetrieval === expected.needs_retrieval,
     rewrittenContains: rewrittenChecks.every((check) => check.matched),
     entityTermAny:
@@ -328,20 +402,35 @@ function scoreCase(row, actual) {
     knowledgeGraph:
       expectedStrategy === null ||
       actual.useKnowledgeGraph === expectedStrategy.use_knowledge_graph,
-    documentRecall: recalledDocuments.length === expectedDocuments.length,
-    evidenceRecall:
-      recalledEvidenceGroups.length === row.gold.evidence_groups.length,
-    noForbiddenLiteral: forbiddenChecks.every((check) => !check.violated),
+    documentRecall: documentRecallPassed,
+    allEvidence: allEvidencePassed,
+    noForbiddenAssertion: forbiddenChecks.every((check) => !check.violated),
+    unanswerableCalibration: unanswerableAcknowledged,
     answerProduced: actual.answer.trim().length > 0,
+  };
+
+  const gates = {
+    retrievalDecision: deterministic.retrievalDecision,
+    searchType: deterministic.searchType,
+    knowledgeGraph: deterministic.knowledgeGraph,
+    documentRecall: deterministic.documentRecall,
+    allEvidence: deterministic.allEvidence,
+    noForbiddenAssertion: deterministic.noForbiddenAssertion,
+    unanswerableCalibration: deterministic.unanswerableCalibration,
+    answerProduced: deterministic.answerProduced,
   };
 
   return {
     deterministic,
+    gates,
     detail: {
+      answerable: row.gold.answerable,
+      acceptableIntents,
       rewrittenChecks,
       entityChecks,
       recalledDocuments,
       expectedDocuments,
+      documentsRequired,
       recalledEvidenceGroups: recalledEvidenceGroups.length,
       expectedEvidenceGroups: row.gold.evidence_groups.length,
       forbiddenChecks,
@@ -350,12 +439,12 @@ function scoreCase(row, actual) {
         requiredLiteralChecks.filter((check) => check.matched).length,
         requiredLiteralChecks.length,
       ),
+      recalledRequiredFacts: requiredLiteralChecks.filter(
+        (check) => check.matched,
+      ).length,
+      expectedRequiredFacts: requiredLiteralChecks.length,
       requiredLiteralChecks,
-      unanswerableAcknowledged:
-        row.gold.answerable !== false ||
-        /(未提供|没有提供|无法确认|不能确认|未找到|知识库中没有)/.test(
-          actual.answer,
-        ),
+      unanswerableAcknowledged,
     },
   };
 }
@@ -385,6 +474,109 @@ function buildReport({ datasetPath, baseUrl, maxIterations, results }) {
       ),
     ]),
   );
+  const evidenceCases = successful.filter(
+    (result) => result.assertions.detail.expectedEvidenceGroups > 0,
+  );
+  const documentCases = successful.filter(
+    (result) =>
+      result.assertions.detail.documentsRequired &&
+      result.assertions.detail.expectedDocuments.length > 0,
+  );
+  const unanswerableCases = successful.filter(
+    (result) => result.assertions.detail.answerable === false,
+  );
+  const totalForbiddenFacts = sum(
+    successful.map((result) => result.assertions.detail.forbiddenChecks.length),
+  );
+  const violatedForbiddenFacts = sum(
+    successful.map(
+      (result) =>
+        result.assertions.detail.forbiddenChecks.filter(
+          (check) => check.violated,
+        ).length,
+    ),
+  );
+  const totalRequiredFacts = sum(
+    successful.map((result) => result.assertions.detail.expectedRequiredFacts),
+  );
+  const recalledRequiredFacts = sum(
+    successful.map((result) => result.assertions.detail.recalledRequiredFacts),
+  );
+
+  const metrics = {
+    analysisAndRouting: {
+      intentAccuracy: assertionRates.intent,
+      retrievalDecisionAccuracy: assertionRates.retrievalDecision,
+      conversationRewritePassRate: assertionRates.rewrittenContains,
+      entityTermPassRate: assertionRates.entityTermAny,
+      strategyAccuracy: assertionRates.searchType,
+      knowledgeGraphRoutingAccuracy: assertionRates.knowledgeGraph,
+    },
+    retrieval: {
+      goldDocumentRecall: ratio(
+        sum(
+          documentCases.map(
+            (result) => result.assertions.detail.recalledDocuments.length,
+          ),
+        ),
+        sum(
+          documentCases.map(
+            (result) => result.assertions.detail.expectedDocuments.length,
+          ),
+        ),
+      ),
+      evidenceGroupRecall: ratio(
+        sum(
+          evidenceCases.map(
+            (result) => result.assertions.detail.recalledEvidenceGroups,
+          ),
+        ),
+        sum(
+          evidenceCases.map(
+            (result) => result.assertions.detail.expectedEvidenceGroups,
+          ),
+        ),
+      ),
+      allEvidenceSuccessRate: ratio(
+        evidenceCases.filter(
+          (result) => result.assertions.deterministic.allEvidence,
+        ).length,
+        evidenceCases.length,
+      ),
+    },
+    answer: {
+      requiredFactLiteralCoverage: ratio(
+        recalledRequiredFacts,
+        totalRequiredFacts,
+      ),
+      forbiddenFactViolationRate: ratio(
+        violatedForbiddenFacts,
+        totalForbiddenFacts,
+      ),
+      unanswerableCalibration: ratio(
+        unanswerableCases.filter(
+          (result) => result.assertions.deterministic.unanswerableCalibration,
+        ).length,
+        unanswerableCases.length,
+      ),
+      answerProducedRate: assertionRates.answerProduced,
+    },
+    agentAndEngineering: {
+      taskSuccessRate: ratio(passed, results.length),
+      followUpIterationRate: ratio(
+        successful.filter((result) => result.actual.totalIterations > 1).length,
+        successful.length,
+      ),
+      averageIterations: average(
+        successful.map((result) => result.actual.totalIterations),
+      ),
+      latencyMs: {
+        average: average(latencies),
+        p50: percentile(latencies, 0.5),
+        p95: percentile(latencies, 0.95),
+      },
+    },
+  };
 
   return {
     metadata: {
@@ -405,6 +597,7 @@ function buildReport({ datasetPath, baseUrl, maxIterations, results }) {
         p95: percentile(latencies, 0.95),
       },
       assertionRates,
+      metrics,
     },
     results,
   };
@@ -420,6 +613,22 @@ function printSummary(summary) {
   );
   for (const [name, rate] of Object.entries(summary.assertionRates))
     console.log(`${name}: ${percent(rate)}`);
+  console.log('\n=== Core Metrics ===');
+  console.log(
+    `goldDocumentRecall: ${percent(summary.metrics.retrieval.goldDocumentRecall)}`,
+  );
+  console.log(
+    `evidenceGroupRecall: ${percent(summary.metrics.retrieval.evidenceGroupRecall)}`,
+  );
+  console.log(
+    `allEvidenceSuccessRate: ${percent(summary.metrics.retrieval.allEvidenceSuccessRate)}`,
+  );
+  console.log(
+    `unanswerableCalibration: ${percent(summary.metrics.answer.unanswerableCalibration)}`,
+  );
+  console.log(
+    `averageIterations: ${summary.metrics.agentAndEngineering.averageIterations.toFixed(2)}`,
+  );
 }
 
 async function resolveToken(baseUrl, cliOptions) {
@@ -511,6 +720,7 @@ Options:
   --concurrency <number>    并发数，默认 1
   --max-iterations <number> Agent 最大迭代次数，默认 2
   --output <path>           将完整报告写入 JSON 文件
+  --replay <report-path>    使用历史报告 actual 数据重新判分，不请求后端
   --keep-conversations      保留本次评估创建的会话
   --help                    显示帮助`);
 }
@@ -518,8 +728,44 @@ Options:
 function normalize(value) {
   return String(value ?? '')
     .normalize('NFKC')
+    // 与文档解析层保持一致：兼容 PDF 文本提取器产生的 CJK 部首字形。
+    .replace(/[⻅⻆⻋⻓⻔⻛⻜]/g, (glyph) =>
+      ({
+        '⻅': '见',
+        '⻆': '角',
+        '⻋': '车',
+        '⻓': '长',
+        '⻔': '门',
+        '⻛': '风',
+        '⻜': '飞',
+      })[glyph],
+    )
     .toLocaleLowerCase()
     .replace(/[\s*_`"'“”‘’「」《》]/g, '');
+}
+
+/** requirement 为字符串时必须命中；为字符串数组时命中任意一个同义表达即可。 */
+function matchTextRequirement(text, requirement) {
+  const alternatives = Array.isArray(requirement) ? requirement : [requirement];
+  const normalizedText = normalize(text);
+  return alternatives.some((item) => normalizedText.includes(normalize(item)));
+}
+
+/**
+ * 字面禁止事实只在肯定断言中记为违规。
+ * “不可以”“是否可以”“无法确认可以”等否定、疑问上下文不应误报。
+ */
+function containsPositiveAssertion(normalizedAnswer, normalizedFact) {
+  if (!normalizedFact) return false;
+  let fromIndex = 0;
+  while (true) {
+    const index = normalizedAnswer.indexOf(normalizedFact, fromIndex);
+    if (index < 0) return false;
+    const prefix = normalizedAnswer.slice(Math.max(0, index - 12), index);
+    if (!/(不|未|无|无法|不能|没有|并非|否认|是否|能否|不可)/.test(prefix))
+      return true;
+    fromIndex = index + normalizedFact.length;
+  }
 }
 
 function sameLooseText(left, right) {
@@ -540,6 +786,10 @@ function average(values) {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
     : 0;
+}
+
+function sum(values) {
+  return values.reduce((total, value) => total + value, 0);
 }
 
 function percentile(sortedValues, quantile) {
