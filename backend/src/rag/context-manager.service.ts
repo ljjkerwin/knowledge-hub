@@ -9,7 +9,6 @@ import { ChatOpenAI } from '@langchain/openai';
 // 对话上下文
 export interface ConversationContext {
   history: MessageEntity[];
-  currentQuery: string;
   summary?: string;
   conversationId: string;
 }
@@ -42,10 +41,7 @@ export class ContextManager {
   /**
    * 构建对话上下文
    */
-  async buildContext(
-    conversationId: string,
-    currentQuery: string,
-  ): Promise<ConversationContext> {
+  async buildContext(conversationId: string): Promise<ConversationContext> {
     // 调用方会在写入当前用户消息前调用此方法，因此这里都是已完成的历史消息。
     const conversation = await this.conversationService.findOne(conversationId);
     let summary = conversation.contextSummary ?? undefined;
@@ -57,7 +53,10 @@ export class ContextManager {
     // 超出窗口时，仅压缩较旧的未覆盖消息；摘要成功后持久化并复用。
     if (history.length > this.maxHistoryLength) {
       const messagesToSummarize = history.slice(0, -this.recentHistoryLength);
-      const newSummary = await this.generateSummary(summary, messagesToSummarize);
+      const newSummary = await this.generateSummary(
+        summary,
+        messagesToSummarize,
+      );
       const lastMessage = messagesToSummarize.at(-1);
 
       if (newSummary && lastMessage) {
@@ -70,13 +69,14 @@ export class ContextManager {
         history = history.slice(-this.recentHistoryLength);
       } else {
         // 摘要失败时不推进游标，避免遗漏上下文；下一轮可安全重试。
-        this.logger.warn(`对话 ${conversationId} 的滚动摘要未更新，将保留未压缩历史`);
+        this.logger.warn(
+          `对话 ${conversationId} 的滚动摘要未更新，将保留未压缩历史`,
+        );
       }
     }
 
     return {
       history,
-      currentQuery,
       summary,
       conversationId,
     };
@@ -97,7 +97,9 @@ export class ContextManager {
         })
         .join('\n');
 
-      this.logger.verbose(`历史消息超过${this.maxHistoryLength}，生成对话摘要，保留${this.recentHistoryLength}`)
+      this.logger.verbose(
+        `历史消息超过${this.maxHistoryLength}，生成对话摘要，保留${this.recentHistoryLength}`,
+      );
 
       const response = await this.llm.invoke([
         new SystemMessage(

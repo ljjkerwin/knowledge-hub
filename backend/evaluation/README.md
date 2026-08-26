@@ -100,7 +100,7 @@ EVAL_TOKEN='<jwt>' pnpm eval:dataset -- \
 
 ```bash
 EVAL_TOKEN='<jwt>' pnpm eval:dataset -- \
-  --concurrency 2 \
+  --concurrency 10 \
   --max-iterations 2 \
   --output evaluation/reports/full.json
 ```

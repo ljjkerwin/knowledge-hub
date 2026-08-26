@@ -124,7 +124,6 @@ export interface AguiStreamOptions {
   enableFollowUp?: boolean;
   /** 仅用于离线评估：检索事件携带完整 chunk，便于证据级判分。 */
   evaluationMode?: boolean;
-  userId?: string;
   categoryId?: string;
   teamId?: string;
 }

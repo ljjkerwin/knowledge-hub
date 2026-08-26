@@ -23,7 +23,7 @@ import {
   AguiEventUnion,
   AguiStreamOptions,
 } from '../types/agui.types';
-import { SearchType } from '../dto/query.dto';
+import { SearchType } from '../types/search.types';
 import type { ConversationContext } from '../context-manager.service';
 import { CallbackHandler } from '@langfuse/langchain';
 
@@ -111,7 +111,6 @@ export class AgentOrchestrator {
       topK: strategy.candidateTopK,
       categoryId: options?.categoryId,
       teamId: options?.teamId,
-      userId: options?.userId,
     };
 
     const queries = this.buildRetrievalQueries(
@@ -228,9 +227,7 @@ export class AgentOrchestrator {
   ): WeightedQuery[] {
     const entityQueries = Array.from(
       new Set(
-        (analysis.entityTerms ?? [])
-          .map((term) => term.trim())
-          .filter(Boolean),
+        (analysis.entityTerms ?? []).map((term) => term.trim()).filter(Boolean),
       ),
     ).slice(0, 4);
     const shouldDecompose =
@@ -338,16 +335,16 @@ export class AgentOrchestrator {
           config,
         );
 
-        this.logger.verbose(`[langgraph][analyze] ${JSON.stringify(analysis, null, 2)} ${analysis.rewritten}`)
+        this.logger.verbose(
+          `[langgraph][analyze] ${JSON.stringify(analysis, null, 2)} ${analysis.rewritten}`,
+        );
 
         return {
           analysis,
           retrievalQuestion: analysis.rewritten,
           // 只在首轮固定答案目标，避免后续追问覆盖用户的原始意图。
           answerQuestion:
-            state.iteration === 1
-              ? analysis.rewritten
-              : state.answerQuestion,
+            state.iteration === 1 ? analysis.rewritten : state.answerQuestion,
         };
       })
       // 闲聊等不需要检索的请求直接流式回答，避免进入 RAG 管线。
@@ -361,7 +358,7 @@ export class AgentOrchestrator {
           config,
         );
 
-        this.logger.verbose(`[langgraph][directGenerate]`)
+        this.logger.verbose(`[langgraph][directGenerate]`);
 
         for await (const chunk of this.generationService.generateDirectStream(
           state.originalQuestion,
@@ -415,7 +412,9 @@ export class AgentOrchestrator {
           config,
         );
 
-        this.logger.verbose(`[langgraph][strategy] ${JSON.stringify(strategy, null, 2)}`)
+        this.logger.verbose(
+          `[langgraph][strategy] ${JSON.stringify(strategy, null, 2)}`,
+        );
 
         return { strategy };
       })
@@ -438,7 +437,9 @@ export class AgentOrchestrator {
           state.originalQuestion,
         );
 
-        this.logger.verbose(`[langgraph][chunks] ${JSON.stringify(chunks, null, 2)}`)
+        this.logger.verbose(
+          `[langgraph][chunks] ${JSON.stringify(chunks, null, 2)}`,
+        );
 
         const allChunks = this.takeTopAccumulatedChunks(
           this.mergeChunks(state.allChunks, chunks),
@@ -473,7 +474,7 @@ export class AgentOrchestrator {
           config,
         );
 
-        this.logger.verbose(`[langgraph][generateDraft]`)
+        this.logger.verbose(`[langgraph][generateDraft]`);
 
         const draft = await this.generationService.generate(
           state.answerQuestion,
@@ -488,7 +489,9 @@ export class AgentOrchestrator {
           state.draft!,
         );
 
-        this.logger.verbose(`[langgraph][evaluation] ${JSON.stringify(evaluation, null, 2)}`)
+        this.logger.verbose(
+          `[langgraph][evaluation] ${JSON.stringify(evaluation, null, 2)}`,
+        );
 
         this.emit(
           {
@@ -614,11 +617,13 @@ export class AgentOrchestrator {
       // 图的固定主干。
       .addEdge(START, 'analyze')
       // 问题分析决定走直答分支还是检索分支。
-      .addConditionalEdges('analyze', (state: AgentStateValue) =>
-        !state.analysis!.needsRetrieval ||
-        state.analysis!.intent === QueryIntent.CHITCHAT
-          ? 'directGenerate'
-          : 'selectStrategy',
+      .addConditionalEdges(
+        'analyze',
+        (state: AgentStateValue) =>
+          !state.analysis!.needsRetrieval ||
+          state.analysis!.intent === QueryIntent.CHITCHAT
+            ? 'directGenerate'
+            : 'selectStrategy',
         ['directGenerate', 'selectStrategy'],
       )
       .addEdge('directGenerate', END)
@@ -626,8 +631,10 @@ export class AgentOrchestrator {
       .addEdge('retrieve', 'generateDraft')
       .addEdge('generateDraft', 'evaluate')
       // 质量不足且可继续时回到 analyze，否则输出当前最佳答案。
-      .addConditionalEdges('evaluate', (state: AgentStateValue) =>
-        state.shouldContinue ? 'analyze' : 'finalize',
+      .addConditionalEdges(
+        'evaluate',
+        (state: AgentStateValue) =>
+          state.shouldContinue ? 'analyze' : 'finalize',
         ['analyze', 'finalize'],
       )
       .addEdge('finalize', END)
@@ -637,7 +644,7 @@ export class AgentOrchestrator {
     //   console.log(drawable.drawMermaid({ withStyles: true }));
     // })
 
-    return graph
+    return graph;
   }
 
   /**
@@ -672,7 +679,7 @@ export class AgentOrchestrator {
         },
         {
           streamMode: 'custom',
-          // callbacks: [langfuseHandler],
+          callbacks: [langfuseHandler],
         },
       );
       for await (const event of stream) yield event as AguiEventUnion;
@@ -689,7 +696,7 @@ export class AgentOrchestrator {
   }
 
   /** 将已生成答案拆为适合 SSE 逐步展示的片段，优先保留段落和句子边界。 */
-  private splitAnswerForStreaming(answer: string, maxLength = 50): string[] {
+  private splitAnswerForStreaming(answer: string, maxLength = 100): string[] {
     const chunks: string[] = [];
     let remaining = answer;
 

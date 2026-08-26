@@ -41,7 +41,6 @@ export interface SearchOptions {
   categoryId?: string;
   teamId?: string;
   authorId?: string;
-  userId?: string;
   similarityThreshold?: number;
   keywordScoreThreshold?: number;
 }

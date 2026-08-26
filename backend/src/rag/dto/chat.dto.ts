@@ -23,10 +23,6 @@ export class ChatDto {
   @Max(5)
   maxIterations?: number = 2;
 
-  @IsOptional()
-  @IsBoolean()
-  streamResponse?: boolean = true;
-
   /** 评估 Runner 使用：在检索事件中返回完整 chunk，普通聊天保持 200 字预览。 */
   @IsOptional()
   @IsBoolean()

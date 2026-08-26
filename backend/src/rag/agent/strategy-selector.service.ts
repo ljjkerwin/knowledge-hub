@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryIntent } from './question-analyzer.service';
-import { SearchType } from '../dto/query.dto';
+import { SearchType } from '../types/search.types';
 
 // 检索策略
 export interface RetrievalStrategy {
@@ -36,87 +36,26 @@ export class StrategySelector {
     question: string,
     originalQuestion?: string,
   ): RetrievalStrategy {
-    const strategy = this.getStrategyByIntent(intent);
-    // 改写可能把“负责”变成“职责”等表达；联合原问题判断，避免丢失精确词和关系信号。
-    const adjustedStrategy = this.applyQueryFeatures(
-      strategy,
+    // 所有知识问答先走同一套稳定的 Hybrid 基线。意图只决定是否值得
+    // 展开查询或补充图谱，不再为每类意图维护一组未经独立评估的 TopK 和权重。
+    const strategy = this.applyQueryFeatures(
+      intent,
       question,
       originalQuestion,
     );
 
     this.logger.log(
-      `选择检索策略: 意图=${intent}, 检索方式=${adjustedStrategy.searchType}, topK=${adjustedStrategy.topK}, 候选=${adjustedStrategy.candidateTopK}`,
+      `选择检索策略: 意图=${intent}, 检索方式=${strategy.searchType}, topK=${strategy.topK}, 候选=${strategy.candidateTopK}`,
     );
 
-    return adjustedStrategy;
+    return strategy;
   }
 
   /**
-   * 根据意图获取策略
-   */
-  private getStrategyByIntent(intent: QueryIntent): RetrievalStrategy {
-    switch (intent) {
-      case QueryIntent.FACTUAL:
-        // 普通事实问题同时保留语义与精确术语召回。
-        return {
-          searchType: SearchType.HYBRID,
-          topK: this.defaultTopK,
-          candidateTopK: this.defaultTopK + 2,
-          expandQuery: false,
-          useKnowledgeGraph: false,
-          sourceWeights: { vector: 1, keyword: 0.7, graph: 0.4 },
-        };
-
-      case QueryIntent.PROCEDURAL:
-        // 流程问题：混合检索，需要更多上下文
-        return {
-          searchType: SearchType.HYBRID,
-          topK: this.defaultTopK + 2,
-          candidateTopK: this.defaultTopK + 4,
-          expandQuery: true,
-          useKnowledgeGraph: false,
-          sourceWeights: { vector: 1, keyword: 0.8, graph: 0.6 },
-        };
-
-      case QueryIntent.COMPARATIVE:
-        // 比较问题：混合检索，需要多个角度
-        return {
-          searchType: SearchType.HYBRID,
-          topK: this.defaultTopK + 3,
-          candidateTopK: this.defaultTopK + 5,
-          expandQuery: true,
-          useKnowledgeGraph: true,
-          sourceWeights: { vector: 0.9, keyword: 0.7, graph: 1 },
-        };
-
-      case QueryIntent.EXPLANATORY:
-        // 解释性问题：向量检索为主，语义理解
-        return {
-          searchType: SearchType.HYBRID,
-          topK: this.defaultTopK + 1,
-          candidateTopK: this.defaultTopK + 3,
-          expandQuery: true,
-          useKnowledgeGraph: false,
-          sourceWeights: { vector: 1, keyword: 0.8, graph: 0.6 },
-        };
-
-      default:
-        return {
-          searchType: SearchType.HYBRID,
-          topK: this.defaultTopK,
-          candidateTopK: this.defaultTopK,
-          expandQuery: false,
-          useKnowledgeGraph: false,
-          sourceWeights: { vector: 1, keyword: 0.8, graph: 0.5 },
-        };
-    }
-  }
-
-  /**
-   * 关键词、图谱适用性均由 query 特征补充判断，不能只依赖问题意图。
+   * 只保留与查询文本直接相关的特例：精确术语和图谱关系问题。
    */
   private applyQueryFeatures(
-    strategy: RetrievalStrategy,
+    intent: QueryIntent,
     question: string,
     originalQuestion?: string,
   ): RetrievalStrategy {
@@ -135,15 +74,22 @@ export class StrategySelector {
       /关系|关联|依赖|影响|导致|上下游|区别|对比|比较|相关|负责|职责|审批|隶属|管理|归属|谁/.test(
         featureText,
       );
-
-    const adjusted = {
-      ...strategy,
-      useKnowledgeGraph: strategy.useKnowledgeGraph || isGraphQuestion,
+    const strategy: RetrievalStrategy = {
+      searchType: SearchType.HYBRID,
+      topK: this.defaultTopK,
+      candidateTopK: this.defaultTopK + 2,
+      // 多样化提问仍可使用分析器产生的扩展词；不再顺带扩大 TopK。
+      expandQuery:
+        intent === QueryIntent.PROCEDURAL ||
+        intent === QueryIntent.COMPARATIVE ||
+        intent === QueryIntent.EXPLANATORY,
+      useKnowledgeGraph: intent === QueryIntent.COMPARATIVE || isGraphQuestion,
+      sourceWeights: { vector: 1, keyword: 0.8, graph: 1 },
     };
 
     if (isPureIdentifier) {
       return {
-        ...adjusted,
+        ...strategy,
         searchType: SearchType.KEYWORD,
         useKnowledgeGraph: false,
         sourceWeights: { vector: 0, keyword: 1.2, graph: 0 },
@@ -152,22 +98,20 @@ export class StrategySelector {
 
     if (hasStrongExactTerm) {
       return {
-        ...adjusted,
+        ...strategy,
         searchType: SearchType.HYBRID,
         sourceWeights: {
           vector: 0.8,
           keyword: 1.2,
-          graph: adjusted.useKnowledgeGraph
-            ? Math.max(adjusted.sourceWeights.graph, 0.8)
-            : adjusted.sourceWeights.graph,
+          graph: strategy.useKnowledgeGraph ? 1 : 0.5,
         },
       };
     }
 
-    if (!hasQuotedTerm) return adjusted;
+    if (!hasQuotedTerm) return strategy;
 
     return {
-      ...adjusted,
+      ...strategy,
       searchType: SearchType.HYBRID,
       sourceWeights: { vector: 0.6, keyword: 1.2, graph: 0.3 },
     };

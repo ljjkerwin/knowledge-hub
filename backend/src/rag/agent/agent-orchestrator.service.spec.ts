@@ -1,6 +1,6 @@
 import { QueryIntent, RewrittenQuery } from './question-analyzer.service';
 import { RetrievalStrategy } from './strategy-selector.service';
-import { SearchType } from '../dto/query.dto';
+import { SearchType } from '../types/search.types';
 import { AgentOrchestrator } from './agent-orchestrator.service';
 
 describe('AgentOrchestrator retrieval query construction', () => {

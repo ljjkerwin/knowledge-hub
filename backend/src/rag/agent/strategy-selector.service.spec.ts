@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
-import { SearchType } from '../dto/query.dto';
+import { SearchType } from '../types/search.types';
 import { QueryIntent } from './question-analyzer.service';
 import { StrategySelector } from './strategy-selector.service';
 

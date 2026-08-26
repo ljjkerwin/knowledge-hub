@@ -67,7 +67,6 @@ export class RagController {
               conversationId,
             }),
           } as MessageEvent);
-
         } else {
           // 校验用户是否有权访问指定会话
           await this.conversationService.findOneForUser(
@@ -77,10 +76,7 @@ export class RagController {
         }
 
         // 2. 在保存当前消息前读取历史；Agent 会用它完成上下文改写。
-        const context = await this.contextManager.buildContext(
-          conversationId,
-          dto.message,
-        );
+        const context = await this.contextManager.buildContext(conversationId);
 
         // 3. 保存用户消息。
         await this.conversationService.addMessage(
@@ -101,7 +97,6 @@ export class RagController {
           maxIterations: dto.maxIterations,
           enableFollowUp: true,
           evaluationMode: dto.evaluationMode,
-          userId: req.user.id,
         })) {
           subject.next({
             data: JSON.stringify(event),

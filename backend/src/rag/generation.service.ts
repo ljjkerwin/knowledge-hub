@@ -46,66 +46,6 @@ export class GenerationService {
     }
   }
 
-  /** 生成不依赖知识库的普通对话回复。 */
-  async generateDirect(
-    query: string,
-    conversationContext?: ConversationContext,
-  ): Promise<GeneratedAnswer> {
-    try {
-      const response = await this.llm.invoke([
-        new SystemMessage(this.getDirectSystemPrompt()),
-        new HumanMessage(this.buildDirectPrompt(query, conversationContext)),
-      ]);
-      return {
-        answer: response.content as string,
-        citations: [],
-        retrievalConfidence: 0,
-      };
-    } catch (error) {
-      this.logger.error(`普通对话生成失败: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 流式生成答案
-   */
-  async *generateStream(
-    query: string,
-    context: RetrievedChunk[],
-  ): AsyncGenerator<{ type: string; content: any }> {
-    try {
-      // 1. 构建引用列表
-      const citations = this.buildCitations(context);
-
-      // 2. 构建 prompt
-      const prompt = this.buildPrompt(query, context, citations);
-
-      // 3. 流式调用 LLM
-      const stream = await this.llm.stream([
-        new SystemMessage(this.getSystemPrompt()),
-        new HumanMessage(prompt),
-      ]);
-
-      // 4. 先返回引用信息
-      yield { type: 'citations', content: citations };
-
-      // 5. 流式返回 token
-      for await (const chunk of stream) {
-        if (chunk.content) {
-          yield { type: 'token', content: chunk.content };
-        }
-      }
-
-      // 6. 计算置信度并返回
-      const confidence = this.calculateConfidence(context, '');
-      yield { type: 'confidence', content: confidence };
-    } catch (error) {
-      this.logger.error(`流式生成失败: ${error.message}`);
-      yield { type: 'error', content: error.message };
-    }
-  }
-
   /** 流式生成不依赖知识库的普通对话回复。 */
   async *generateDirectStream(
     query: string,
