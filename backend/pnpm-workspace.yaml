@@ -1,0 +1,4 @@
+allowBuilds:
+  core-js: false
+  protobufjs: false
+  tesseract.js: false

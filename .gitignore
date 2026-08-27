@@ -12,6 +12,9 @@ backend/build
 .env.test.local
 .env.production.local
 .env.local
+.env.deploy.local
+.env.backend.local
+.env.frontend.local
 
 # temp directory
 .temp
@@ -19,3 +22,4 @@ backend/build
 
 .claude
 .pnpm-store
+.tmp

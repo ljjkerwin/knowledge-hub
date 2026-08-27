@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
@@ -13,6 +13,14 @@ import { DocumentStatusBadge, statusLabel } from '@/components/documents/documen
 import { useAuthStore } from '@/stores/auth.store';
 
 export default function DocumentDetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <DocumentDetailPageContent />
+    </Suspense>
+  );
+}
+
+function DocumentDetailPageContent() {
   const { id } = useParams<{ id: string }>(); const router = useRouter(); const searchParams = useSearchParams();
   const { user, loadFromStorage } = useAuthStore();
   const [doc, setDoc] = useState<KnowledgeDocument>(); const [history, setHistory] = useState<ReviewTask[]>([]); const [error, setError] = useState(''); const [running, setRunning] = useState(false);
