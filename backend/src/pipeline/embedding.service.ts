@@ -50,17 +50,19 @@ export class EmbeddingService {
     );
     const model = config.get('EMBEDDING_MODEL', 'text-embedding-v3');
 
-    this.embeddings = new OpenAIEmbeddings({
+    const opts = {
       apiKey,
       model,
-      dimensions: this.dimension,
+      // dimensions: this.dimension,  // bge-m3 本身输出固定 1024 维
       batchSize,
       // Markdown chunk 保留换行，避免语义被过度压扁
       stripNewLines: false,
       configuration: {
         baseURL: baseUrl,
       },
-    });
+    }
+
+    this.embeddings = new OpenAIEmbeddings(opts);
   }
 
   /** 单条嵌入 */
@@ -74,6 +76,7 @@ export class EmbeddingService {
     if (!texts.length) return [];
 
     const vectors = await this.embeddings.embedDocuments(texts);
+
     this.logger.log(`嵌入完成：count=${vectors.length}`);
     return vectors;
   }

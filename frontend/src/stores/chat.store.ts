@@ -41,7 +41,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   hasMoreConversations: true,
   isLoadingConversations: false,
   input: '',
-  input: 'm2和m3职级报销对比',
+  // input: 'm2和m3职级报销对比',
   isLoading: false,
   isStreaming: false,
   currentResponse: '',
