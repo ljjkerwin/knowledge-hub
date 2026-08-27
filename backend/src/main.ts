@@ -9,6 +9,7 @@ async function bootstrap() {
     origin: process.env.CORS_ORIGIN || 'http://localhost:5001',
     credentials: true,
   });
+  app.setGlobalPrefix('api');
 
   // 让dto里的装饰器起validator的作用
   app.useGlobalPipes(

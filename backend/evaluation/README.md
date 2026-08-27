@@ -80,7 +80,7 @@ node evaluation/validate-dataset.mjs
 
 ## 批量运行
 
-批量评估通过真实的 `/rag/chat/stream` SSE 接口执行，因此运行前需要：
+批量评估通过真实的 `/api/rag/chat/stream` SSE 接口执行，因此运行前需要：
 
 1. 启动 PostgreSQL、MongoDB、Elasticsearch、Neo4j、RabbitMQ 和后端服务。
 2. 将两份测试 PDF 发布并完成向量索引、关键词索引和知识图谱构建。

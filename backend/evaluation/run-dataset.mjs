@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
  *
  * 该脚本只使用 Node.js 内置能力，无需额外依赖。它负责：
  * 1. 登录或使用现成 Token；
- * 2. 按样本调用 /rag/chat/stream；
+ * 2. 按样本调用 /api/rag/chat/stream；
  * 3. 收集分析、路由、召回、答案、评估和耗时；
  * 4. 计算可确定性判分的指标；
  * 5. 可选写出完整 JSON 报告。
@@ -34,7 +34,7 @@ if (!selectedRows.length) {
 const baseUrl = (
   options.baseUrl ??
   process.env.EVAL_BASE_URL ??
-  'http://localhost:5002'
+  'http://localhost:5002/api'
 ).replace(/\/$/, '');
 
 // 使用历史报告中的 actual 数据重新执行判分，便于修改黄金集或评分规则后快速验证。
@@ -698,7 +698,7 @@ function printHelp() {
 
 Options:
   --dataset <path>          JSONL 数据集路径
-  --base-url <url>          后端地址，默认 http://localhost:5002
+  --base-url <url>          后端地址，默认 http://localhost:5002/api
   --token <jwt>             直接使用 JWT，也可设置 EVAL_TOKEN
   --username <name>         登录用户名，也可设置 EVAL_USERNAME
   --password <password>     登录密码，也可设置 EVAL_PASSWORD

@@ -1,6 +1,11 @@
 import { ApiResponse } from '@/types/api.types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002';
+const backendUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002')
+  .replace(/\/$/, '')
+  .replace(/\/api$/, '');
+
+// 兼容 NEXT_PUBLIC_API_URL 配置为服务根地址或已带 /api 的地址。
+export const API_BASE_URL = `${backendUrl}/api`;
 
 type ApiRequestOptions = RequestInit & {
   skipUnauthorizedRedirect?: boolean;
@@ -34,7 +39,8 @@ function handleUnauthorized() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem('kh_token');
   localStorage.removeItem('kh_user');
-  window.location.href = '/login';
+  const next = `${window.location.pathname}${window.location.search}`;
+  window.location.href = `/login?next=${encodeURIComponent(next)}`;
 }
 
 /**

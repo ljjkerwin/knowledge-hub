@@ -8,6 +8,14 @@ import { Card } from '@/components/ui/card';
 import { useAuthStore } from '@/stores/auth.store';
 import { Brain, Loader2 } from 'lucide-react';
 
+function getReturnPath() {
+  if (typeof window === 'undefined') return '/chat';
+  const next = new URLSearchParams(window.location.search).get('next');
+
+  // 只允许站内绝对路径，避免 next 参数被用作开放重定向。
+  return next?.startsWith('/') && !next.startsWith('//') ? next : '/chat';
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { login, isAuthenticated, isLoading, loadFromStorage } = useAuthStore();
@@ -18,11 +26,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     loadFromStorage();
-    const { isAuthenticated: authed } = useAuthStore.getState();
-    if (authed) {
-      router.replace('/chat');
-    }
-  }, [loadFromStorage, router]);
+  }, [loadFromStorage]);
+
+  useEffect(() => {
+    if (isAuthenticated) router.replace(getReturnPath());
+  }, [isAuthenticated, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +43,7 @@ export default function LoginPage() {
 
     try {
       await login(username, password);
+      router.replace(getReturnPath());
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请重试');
     }

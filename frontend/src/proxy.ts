@@ -24,6 +24,7 @@ export function proxy(request: NextRequest) {
   const token = request.cookies.get('kh_token')?.value;
   if (!token) {
     const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('next', `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(loginUrl);
   }
 

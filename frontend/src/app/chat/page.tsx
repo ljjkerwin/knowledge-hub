@@ -32,7 +32,8 @@ function ChatPageContent() {
     loadFromStorage();
     const { isAuthenticated: authed } = useAuthStore.getState();
     if (!authed) {
-      router.replace('/login');
+      const next = `${window.location.pathname}${window.location.search}`;
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
     }
   }, [loadFromStorage, router]);
 

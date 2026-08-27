@@ -1,4 +1,4 @@
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 import {
   ChatRequest,
   Conversation,
@@ -17,7 +17,7 @@ export const conversationService = {
     request: ChatRequest,
   ): AsyncGenerator<unknown, void, unknown> {
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002'}/rag/chat/stream`,
+      `${API_BASE_URL}/rag/chat/stream`,
       {
         method: 'POST',
         headers: {
