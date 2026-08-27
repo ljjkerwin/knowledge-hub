@@ -31,6 +31,18 @@
 $ pnpm install
 ```
 
+## Langfuse reporting switch
+
+Langfuse reporting is disabled by default. To enable trace, LangChain callback,
+and score reporting, configure both Langfuse API keys, then set the following
+environment variable and restart the backend:
+
+```bash
+LANGFUSE_TRACING_ENABLED=true
+```
+
+Set it to `false` (or remove it) to disable reporting again.
+
 ## Compile and run the project
 
 ```bash

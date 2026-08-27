@@ -26,6 +26,7 @@ import {
 import { SearchType } from '../types/search.types';
 import type { ConversationContext } from '../context-manager.service';
 import { CallbackHandler } from '@langfuse/langchain';
+import { isLangfuseTracingEnabled } from '../../langfuse.config';
 
 interface WeightedQuery {
   query: string;
@@ -654,7 +655,9 @@ export class AgentOrchestrator {
     const { question: originalQuestion, context, ...options } = input;
     const queryId = this.generateQueryId();
     const maxIter = this.maxIterations;
-    const langfuseHandler = new CallbackHandler();
+    const langfuseHandler = isLangfuseTracingEnabled
+      ? new CallbackHandler()
+      : undefined;
     yield {
       type: AguiEventType.METADATA,
       timestamp: Date.now(),
@@ -679,7 +682,7 @@ export class AgentOrchestrator {
         },
         {
           streamMode: 'custom',
-          callbacks: [langfuseHandler],
+          ...(langfuseHandler ? { callbacks: [langfuseHandler] } : {}),
         },
       );
       for await (const event of stream) yield event as AguiEventUnion;

@@ -50,7 +50,7 @@ export function Sidebar() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-64 border-r bg-muted/30">
+    <div className="flex flex-col h-screen w-48 border-r bg-muted/30">
       {/* Header */}
       <div className="flex items-center gap-2 p-4">
         <Brain className="h-6 w-6 text-primary" />

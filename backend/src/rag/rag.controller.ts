@@ -20,6 +20,7 @@ import { ContextManager } from './context-manager.service';
 import { ChatDto, ConversationListDto } from './dto/chat.dto';
 import { AguiEventType } from './types/agui.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { isLangfuseTracingEnabled } from '../langfuse.config';
 
 interface AuthenticatedRequest {
   user: {
@@ -31,10 +32,9 @@ interface AuthenticatedRequest {
 @UseGuards(JwtAuthGuard)
 export class RagController {
   private readonly logger = new Logger(RagController.name);
-  private readonly langfuse =
-    process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY
-      ? new LangfuseClient()
-      : undefined;
+  private readonly langfuse = isLangfuseTracingEnabled
+    ? new LangfuseClient()
+    : undefined;
 
   constructor(
     private readonly agentOrchestrator: AgentOrchestrator,
