@@ -15,7 +15,7 @@ const DEV_USER = {
   id: '10001',
   username: 'dev',
   email: 'dev@knowledge-hub.local',
-  password: 'liangzaijun',
+  password: 'ljjkerwin',
   nickname: '开发者',
 };
 

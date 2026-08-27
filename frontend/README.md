@@ -88,6 +88,7 @@ src/
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:5002
+# 登录密码固定使用纯 JavaScript RSA-OAEP 加密，无需额外前端环境变量。
 ```
 
 后端还需要配置登录解密私钥（Base64 编码的 PEM）：
@@ -95,7 +96,8 @@ NEXT_PUBLIC_API_URL=http://localhost:5002
 ```bash
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out login-private.pem
 base64 < login-private.pem | tr -d '\n'
-# 将输出配置为 LOGIN_RSA_PRIVATE_KEY_BASE64，私钥不可提交到仓库
+# 将输出配置为 LOGIN_RSA_PRIVATE_KEY_BASE64，私钥不可提交到仓库。
+# 后端始终解密登录密码；无需配置 LOGIN_RSA_ENABLED。
 
 # 公钥已固定在前端源码中，不需要配置 NEXT_PUBLIC_LOGIN_RSA_PUBLIC_KEY_BASE64
 ```

@@ -13,9 +13,14 @@ import {
 
 @Injectable()
 export class LoginCryptoService {
-  private readonly privateKey: KeyObject;
+  private readonly enabled: boolean;
+  private readonly privateKey?: KeyObject;
 
   constructor(config: ConfigService) {
+    // 浏览器端使用纯 JavaScript RSA-OAEP，即使站点暂未启用 HTTPS 也会
+    // 发送密文。始终要求解密，避免密码以明文进入认证流程。
+    this.enabled = true;
+
     const encodedPrivateKey = config.get<string>('LOGIN_RSA_PRIVATE_KEY_BASE64');
     if (!encodedPrivateKey) {
       throw new InternalServerErrorException(
@@ -34,10 +39,12 @@ export class LoginCryptoService {
   }
 
   decrypt(encryptedPassword: string): string {
+    if (!this.enabled) return encryptedPassword;
+
     try {
       return privateDecrypt(
         {
-          key: this.privateKey,
+          key: this.privateKey!,
           padding: constants.RSA_PKCS1_OAEP_PADDING,
           oaepHash: 'sha256',
         },

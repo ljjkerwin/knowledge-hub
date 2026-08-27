@@ -71,9 +71,6 @@ if [[ ! -f "${PROJECT_ROOT}/scripts/.env.frontend.local" ]]; then
   exit 1
 fi
 
-cp "${PROJECT_ROOT}/scripts/.env.backend.local" "${PROJECT_ROOT}/backend/.env"
-cp "${PROJECT_ROOT}/scripts/.env.frontend.local" "${PROJECT_ROOT}/frontend/.env"
-
 echo "==> Building backend"
 (
   cd "${PROJECT_ROOT}/backend"
@@ -83,7 +80,17 @@ echo "==> Building backend"
 echo "==> Building frontend"
 (
   cd "${PROJECT_ROOT}/frontend"
-  pnpm run build
+  # NEXT_PUBLIC_* variables are compiled into the browser bundle. Load the
+  # deployment configuration explicitly so the local frontend/.env cannot
+  # accidentally decide the production behavior. This is a dotenv file, not
+  # a shell script: values such as `NEXT_PUBLIC_APP_NAME=Agentic RAG` may
+  # contain spaces, so it must not be loaded with `source`.
+  node --env-file="${PROJECT_ROOT}/scripts/.env.frontend.local" -e '
+    const { spawnSync } = require("node:child_process");
+    const result = spawnSync("pnpm", ["run", "build"], { stdio: "inherit" });
+    if (result.error) throw result.error;
+    process.exit(result.status ?? 1);
+  '
 )
 
 mkdir -p "${PROJECT_ROOT}/.tmp"
@@ -91,9 +98,8 @@ STAGING_DIR="$(mktemp -d "${PROJECT_ROOT}/.tmp/${APP_NAME}-deploy.XXXXXX")"
 ARCHIVE_PATH="${STAGING_DIR}/release.tar.gz"
 
 cleanup() {
-  rm -rf "${STAGING_DIR}"
+  rm -rf "${PROJECT_ROOT}/.tmp"
 }
-# trap cleanup EXIT
 
 echo "==> Packaging production artifacts in ${STAGING_DIR}"
 mkdir -p "${STAGING_DIR}/release/backend" "${STAGING_DIR}/release/frontend"
@@ -102,7 +108,6 @@ copy_if_exists "${PROJECT_ROOT}/backend/dist" "${STAGING_DIR}/release/backend"
 copy_if_exists "${PROJECT_ROOT}/backend/package.json" "${STAGING_DIR}/release/backend"
 copy_if_exists "${PROJECT_ROOT}/backend/pnpm-lock.yaml" "${STAGING_DIR}/release/backend"
 copy_if_exists "${PROJECT_ROOT}/backend/pnpm-workspace.yaml" "${STAGING_DIR}/release/backend"
-copy_if_exists "${PROJECT_ROOT}/backend/.env" "${STAGING_DIR}/release/backend"
 
 copy_if_exists "${PROJECT_ROOT}/frontend/.next" "${STAGING_DIR}/release/frontend"
 # Development and build caches are not required by `next start`; excluding them
@@ -113,7 +118,8 @@ rm -rf \
 copy_if_exists "${PROJECT_ROOT}/frontend/public" "${STAGING_DIR}/release/frontend"
 copy_if_exists "${PROJECT_ROOT}/frontend/package.json" "${STAGING_DIR}/release/frontend"
 copy_if_exists "${PROJECT_ROOT}/frontend/pnpm-lock.yaml" "${STAGING_DIR}/release/frontend"
-copy_if_exists "${PROJECT_ROOT}/frontend/.env" "${STAGING_DIR}/release/frontend"
+# NEXT_PUBLIC_* values are embedded during the local build; never publish the
+# local frontend environment file with the deployment artifact.
 
 COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata \
   -C "${STAGING_DIR}/release" -czf "${ARCHIVE_PATH}" .
@@ -122,6 +128,11 @@ echo "==> Preparing remote deployment directory"
 ssh "${DEPLOY_TARGET}" "mkdir -p '${DEPLOY_PATH}'"
 echo "==> Uploading production artifacts"
 scp "${ARCHIVE_PATH}" "${DEPLOY_TARGET}:${DEPLOY_PATH}/${APP_NAME}.tar.gz"
+echo "==> Uploading deployment environment files"
+scp "${PROJECT_ROOT}/scripts/.env.backend.local" \
+  "${DEPLOY_TARGET}:${DEPLOY_PATH}/${APP_NAME}.backend.env"
+scp "${PROJECT_ROOT}/scripts/.env.frontend.local" \
+  "${DEPLOY_TARGET}:${DEPLOY_PATH}/${APP_NAME}.frontend.env"
 
 echo "==> Installing production dependencies and restarting PM2"
 ssh "${DEPLOY_TARGET}" \
@@ -139,6 +150,8 @@ command -v pm2 >/dev/null 2>&1 || {
 
 app_path="${DEPLOY_PATH}/${APP_NAME}"
 archive_path="${DEPLOY_PATH}/${APP_NAME}.tar.gz"
+backend_env_path="${DEPLOY_PATH}/${APP_NAME}.backend.env"
+frontend_env_path="${DEPLOY_PATH}/${APP_NAME}.frontend.env"
 
 # Direct deployments intentionally replace the existing project directory.
 pm2 delete "${BACKEND_PM2_NAME}" >/dev/null 2>&1 || true
@@ -147,6 +160,12 @@ rm -rf "${app_path}"
 mkdir -p "${app_path}"
 tar -xzf "${archive_path}" -C "${app_path}"
 rm "${archive_path}"
+
+# Environment files are deliberately transferred outside the archive and are
+# installed only after the application artifacts have been unpacked.
+install -m 600 "${backend_env_path}" "${app_path}/backend/.env"
+install -m 600 "${frontend_env_path}" "${app_path}/frontend/.env"
+rm "${backend_env_path}" "${frontend_env_path}"
 
 (
   cd "${app_path}/backend"
@@ -167,5 +186,8 @@ pm2 start "${app_path}/frontend/node_modules/next/dist/bin/next" \
   -- start -p "${FRONTEND_PORT}"
 pm2 save
 REMOTE_SCRIPT
+
+echo "==> Cleaning local deployment temporary files"
+cleanup
 
 echo "==> Deployment complete: ${DEPLOY_TARGET}:${DEPLOY_PATH}/${APP_NAME}"
