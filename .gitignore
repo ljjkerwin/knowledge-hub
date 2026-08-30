@@ -19,6 +19,7 @@ backend/build
 # temp directory
 .temp
 .tmp
+backend/evaluation/results
 
 .claude
 .pnpm-store

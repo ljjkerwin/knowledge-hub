@@ -25,14 +25,18 @@ import {
   AguiStreamOptions,
 } from '../types/agui.types';
 import {
+  AgentExecutionEvent,
+  AgentInternalEventType,
   AgentRunInput,
   AgentRunResult,
   AgentRunResultCollector,
+  isInternalAgentEvent,
 } from './agent-run-result';
 import { SearchType } from '../types/search.types';
 import type { ConversationContext } from '../context-manager.service';
 import { CallbackHandler } from '@langfuse/langchain';
 import { isLangfuseTracingEnabled } from '../../langfuse.config';
+import { startActiveObservation } from '@langfuse/tracing';
 
 interface WeightedQuery {
   query: string;
@@ -56,6 +60,8 @@ const AgentState = Annotation.Root({
   allChunks: Annotation<RetrievedChunk[]>,
   draft: Annotation<GeneratedAnswer | undefined>,
   bestAnswer: Annotation<GeneratedAnswer | undefined>,
+  /** 当前最佳草稿生成时实际使用的完整上下文。 */
+  bestContext: Annotation<RetrievedChunk[]>,
   bestRelevance: Annotation<number>,
   draftAssessment: Annotation<DraftAssessment | undefined>,
   shouldContinue: Annotation<boolean>,
@@ -304,8 +310,8 @@ export class AgentOrchestrator {
 
   /** 业务节点写入 custom stream，queryStream 仅负责映射到 SSE。 */
   private emit(
-    event: AguiEventUnion,
-    config: { writer?: (event: AguiEventUnion) => void },
+    event: AgentExecutionEvent,
+    config: { writer?: (event: AgentExecutionEvent) => void },
   ): void {
     config.writer?.(event);
   }
@@ -453,10 +459,51 @@ export class AgentOrchestrator {
 
         this.logger.verbose(`[langgraph][generateDraft]`);
 
-        const draft = await this.generationService.generate(
-          state.answerQuestion,
-          state.allChunks,
+        // 完整 context 只经内部事件交给 run() 的 collector；SSE 仍只拿到截断摘要。
+        this.emit(
+          {
+            type: AgentInternalEventType.GENERATION_CONTEXT,
+            timestamp: Date.now(),
+            iteration: state.iteration,
+            chunks: state.allChunks,
+          },
+          config,
         );
+
+        const generate = () =>
+          this.generationService.generate(
+            state.answerQuestion,
+            state.allChunks,
+          );
+        const draft = isLangfuseTracingEnabled
+          ? await startActiveObservation(
+              'generate-answer',
+              async (generationChain) => {
+                generationChain.update({
+                  input: {
+                    question: state.answerQuestion,
+                    context: state.allChunks,
+                  },
+                  metadata: {
+                    iteration: state.iteration,
+                    contextChunkCount: state.allChunks.length,
+                  },
+                });
+                const generated = await generate();
+                generationChain.update({
+                  output: {
+                    answer: generated.answer,
+                    citationChunkIds: generated.citations.map(
+                      (citation) => citation.chunkId,
+                    ),
+                  },
+                });
+                return generated;
+              },
+              // LangChain callback 已记录真实模型调用；这里作为其父级 chain，避免重复 generation。
+              { asType: 'chain' },
+            )
+          : await generate();
         return { draft };
       })
       // 更新最佳草稿，并决定跳回 analyze 开始下一轮或进入 finalize。
@@ -483,10 +530,12 @@ export class AgentOrchestrator {
           },
           config,
         );
-        const best =
-          assessment.answerRelevance > state.bestRelevance
-            ? state.draft!
-            : state.bestAnswer!;
+        const currentDraftIsBest =
+          assessment.answerRelevance > state.bestRelevance;
+        const best = currentDraftIsBest ? state.draft! : state.bestAnswer!;
+        const bestContext = currentDraftIsBest
+          ? state.allChunks
+          : state.bestContext;
         const canContinue =
           state.options.enableFollowUp !== false &&
           this.draftAssessmentService.shouldRetrieveMore(assessment) &&
@@ -495,6 +544,7 @@ export class AgentOrchestrator {
           return {
             draftAssessment: assessment,
             bestAnswer: best,
+            bestContext,
             bestRelevance: Math.max(
               state.bestRelevance,
               assessment.answerRelevance,
@@ -524,6 +574,7 @@ export class AgentOrchestrator {
           return {
             draftAssessment: assessment,
             bestAnswer: best,
+            bestContext,
             bestRelevance: Math.max(
               state.bestRelevance,
               assessment.answerRelevance,
@@ -543,6 +594,7 @@ export class AgentOrchestrator {
         return {
           draftAssessment: assessment,
           bestAnswer: best,
+          bestContext,
           bestRelevance: Math.max(
             state.bestRelevance,
             assessment.answerRelevance,
@@ -556,6 +608,15 @@ export class AgentOrchestrator {
       .addNode('finalize', async (state: AgentStateValue, config) => {
         const answer = state.bestAnswer;
         if (!answer) throw new Error('大模型未生成可返回的答案草稿。');
+        // 直接携带最佳草稿对应 context，避免以后 citations 只保留已引用子集时反推失败。
+        this.emit(
+          {
+            type: AgentInternalEventType.FINAL_GENERATION_CONTEXT,
+            timestamp: Date.now(),
+            chunks: state.bestContext,
+          },
+          config,
+        );
         this.emit(
           {
             type: AguiEventType.RETRIEVAL_RESULT,
@@ -637,7 +698,9 @@ export class AgentOrchestrator {
    *
    * 线上 SSE 与离线 run() 都消费这一条执行路径，避免评测逻辑偏离生产逻辑。
    */
-  async *runEvents(input: AgentRunInput): AsyncGenerator<AguiEventUnion> {
+  private async *runEvents(
+    input: AgentRunInput,
+  ): AsyncGenerator<AgentExecutionEvent> {
     const {
       question: originalQuestion,
       context,
@@ -662,6 +725,7 @@ export class AgentOrchestrator {
           iteration: 1,
           completedIterations: 0,
           allChunks: [],
+          bestContext: [],
           bestRelevance: Number.NEGATIVE_INFINITY,
           shouldContinue: false,
         },
@@ -670,7 +734,7 @@ export class AgentOrchestrator {
           ...(langfuseHandler ? { callbacks: [langfuseHandler] } : {}),
         },
       );
-      for await (const event of stream) yield event as AguiEventUnion;
+      for await (const event of stream) yield event as AgentExecutionEvent;
     } catch (error) {
       this.logger.error(
         `Agentic RAG 流式查询失败 [${queryId}]: ${error.message}`,
@@ -716,7 +780,10 @@ export class AgentOrchestrator {
       },
     };
 
-    yield* this.runEvents({ ...runInput, queryId });
+    for await (const event of this.runEvents({ ...runInput, queryId })) {
+      // 禁止把完整知识库片段下发给 SSE 客户端。
+      if (!isInternalAgentEvent(event)) yield event;
+    }
   }
 
   /** 将已生成答案拆为适合 SSE 逐步展示的片段，优先保留段落和句子边界。 */

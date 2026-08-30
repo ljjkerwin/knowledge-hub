@@ -56,6 +56,7 @@ export class RagController {
     const subject = new Subject<MessageEvent>();
 
     void startActiveObservation('rag.chat.stream', async (span) => {
+      const startedAt = Date.now();
       try {
         span.update({ input: { messageLength: dto.message.length } });
         // 1. 获取或创建对话
@@ -90,6 +91,7 @@ export class RagController {
         let didComplete = false;
         let streamError: string | undefined;
         let totalIterations = 0;
+        let timeToFirstTextMs: number | undefined;
 
         for await (const event of this.agentOrchestrator.queryStream({
           question: dto.message,
@@ -102,7 +104,10 @@ export class RagController {
           } as MessageEvent);
 
           // 收集答案信息
-          if (event.type === AguiEventType.TEXT) answerText += event.content;
+          if (event.type === AguiEventType.TEXT) {
+            timeToFirstTextMs ??= Date.now() - startedAt;
+            answerText += event.content;
+          }
           // 检索结果
           if (event.type === AguiEventType.RETRIEVAL_RESULT) {
             lastCitations = event.chunks.map((c: any, i: number) => ({
@@ -129,6 +134,8 @@ export class RagController {
             conversationId,
             queryId: lastQueryId || undefined,
             reason: streamError ?? 'stream_completed_without_done',
+            totalMs: Date.now() - startedAt,
+            ...(timeToFirstTextMs !== undefined ? { timeToFirstTextMs } : {}),
           });
           return;
         }
@@ -148,11 +155,16 @@ export class RagController {
           conversationId,
           queryId: lastQueryId,
           totalIterations,
+          totalMs: Date.now() - startedAt,
+          ...(timeToFirstTextMs !== undefined ? { timeToFirstTextMs } : {}),
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.error(`对话流式查询失败: ${message}`);
-        this.recordRequestSuccess(span, false, { reason: message });
+        this.recordRequestSuccess(span, false, {
+          reason: message,
+          totalMs: Date.now() - startedAt,
+        });
         subject.next({
           data: JSON.stringify({
             type: AguiEventType.ERROR,

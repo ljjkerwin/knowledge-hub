@@ -12,6 +12,7 @@ import { SearchType } from '../types/search.types';
 // 查询意图枚举
 export enum QueryIntent {
   CHITCHAT = 'chitchat', // 寒暄、致谢等无需知识库的问题
+  SAFETY = 'safety', // 可直接依据固定安全边界处理的问题
   FACTUAL = 'factual', // 事实性问题
   PROCEDURAL = 'procedural', // 流程/操作问题
   COMPARATIVE = 'comparative', // 比较问题
@@ -150,6 +151,27 @@ export function isSimpleChitchat(question: string): boolean {
   );
 }
 
+/**
+ * 识别用户询问如何处置外部内容中的高风险指令。
+ * 这类回答由固定安全边界约束，不依赖知识库中的业务资料。
+ */
+export function isExternalContentSafetyQuestion(question: string): boolean {
+  const normalized = question.replace(/\s/g, '');
+  const mentionsExternalContent =
+    /(?:外部|合作方|第三方|网页|邮件|留言|文档|附件|引用).{0,24}(?:内容|文本|消息|留言|指令)/.test(
+      normalized,
+    );
+  const mentionsRiskyInstruction =
+    /忽略(?:系统)?(?:指令|规则)|泄露(?:系统提示词|机密|信息)|输出(?:系统提示词|提示词)|执行(?:命令|操作)|越过(?:安全|权限)/.test(
+      normalized,
+    );
+  const asksForHandling = /怎么处理|如何处理|怎么办|应对|识别|是否(?:执行|可信)/.test(
+    normalized,
+  );
+
+  return mentionsExternalContent && mentionsRiskyInstruction && asksForHandling;
+}
+
 @Injectable()
 export class QuestionAnalyzer {
   private readonly logger = new Logger(QuestionAnalyzer.name);
@@ -186,6 +208,16 @@ export class QuestionAnalyzer {
       return {
         rewritten: question,
         intent: QueryIntent.CHITCHAT,
+        expandedQueries: [],
+        entityTerms: [],
+        needsRetrieval: false,
+      };
+    }
+
+    if (isExternalContentSafetyQuestion(question)) {
+      return {
+        rewritten: question,
+        intent: QueryIntent.SAFETY,
         expandedQueries: [],
         entityTerms: [],
         needsRetrieval: false,
@@ -275,6 +307,7 @@ export class QuestionAnalyzer {
    - comparative: 比较问题（区别、对比）
    - explanatory: 解释性问题（为什么、原理）
    - chitchat: 寒暄、致谢、告别、简单社交回应等不需要查询知识库的内容
+   - safety: 询问如何处理外部内容中的可疑指令；这类问题不检索，由固定安全规则处理
 
 4. **扩展查询**：基于 rewritten 生成 1-2 个相关查询词
    - 同义词/近义词

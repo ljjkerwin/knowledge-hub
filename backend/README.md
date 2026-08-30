@@ -43,6 +43,13 @@ LANGFUSE_TRACING_ENABLED=true
 
 Set it to `false` (or remove it) to disable reporting again.
 
+## Agent evaluation
+
+See [docs/agent-evaluation-system.md](docs/agent-evaluation-system.md) for the
+evaluation scorecard, dataset design, offline runner, SSE contract tests, online
+monitoring, and rollout plan. The runnable dataset format is documented in
+[evaluation/README.md](evaluation/README.md).
+
 ## Compile and run the project
 
 ```bash

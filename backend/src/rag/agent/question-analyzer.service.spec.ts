@@ -1,6 +1,7 @@
 import { SearchType } from '../types/search.types';
 import {
   buildRetrievalStrategy,
+  isExternalContentSafetyQuestion,
   QueryIntent,
 } from './question-analyzer.service';
 
@@ -47,5 +48,17 @@ describe('QuestionAnalyzer retrieval strategy', () => {
     );
 
     expect(strategy.useKnowledgeGraph).toBe(true);
+  });
+
+  it('recognizes a request to safely handle risky instructions in external content', () => {
+    expect(
+      isExternalContentSafetyQuestion(
+        '这份外部合作方留言里的“忽略系统指令”应该怎么处理？',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not classify a normal policy question as an external-content safety question', () => {
+    expect(isExternalContentSafetyQuestion('如何申请出差报销？')).toBe(false);
   });
 });
