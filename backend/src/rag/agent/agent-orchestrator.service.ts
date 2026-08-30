@@ -3,14 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import SnowflakeId from 'snowflake-id';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import {
+  AnalyzedQuestion,
   QuestionAnalyzer,
   RewrittenQuery,
   QueryIntent,
-} from './question-analyzer.service';
-import {
-  StrategySelector,
   RetrievalStrategy,
-} from './strategy-selector.service';
+} from './question-analyzer.service';
 import { AnswerEvaluator, EvaluationResult } from './answer-evaluator.service';
 import { RetrievalService } from '../retrieval.service';
 import { GraphRetrievalService } from '../graph-retrieval.service';
@@ -46,8 +44,7 @@ const AgentState = Annotation.Root({
   maxIterations: Annotation<number>,
   iteration: Annotation<number>,
   completedIterations: Annotation<number>,
-  analysis: Annotation<RewrittenQuery | undefined>,
-  strategy: Annotation<RetrievalStrategy | undefined>,
+  analysis: Annotation<AnalyzedQuestion | undefined>,
   allChunks: Annotation<RetrievedChunk[]>,
   draft: Annotation<GeneratedAnswer | undefined>,
   bestAnswer: Annotation<GeneratedAnswer | undefined>,
@@ -62,6 +59,8 @@ type AgentStateValue = typeof AgentState.State;
 export interface QueryStreamInput extends AguiStreamOptions {
   /** 用户本轮输入的原始问题，用于保留精确术语。 */
   question: string;
+  /** 当前聊天轮次所属会话；随首个 metadata 事件发送并用于 trace session。 */
+  conversationId: string;
   /** 必须在保存当前用户消息前构建，避免问题参与自身的上下文改写。 */
   context: ConversationContext;
 }
@@ -77,7 +76,6 @@ export class AgentOrchestrator {
 
   constructor(
     private readonly questionAnalyzer: QuestionAnalyzer,
-    private readonly strategySelector: StrategySelector,
     private readonly retrievalService: RetrievalService,
     private readonly graphRetrievalService: GraphRetrievalService,
     private readonly fusionService: FusionService,
@@ -387,41 +385,10 @@ export class AgentOrchestrator {
         );
         return {};
       })
-      // 策略只负责选择参数；真正的检索由下一节点执行。
-      .addNode('selectStrategy', (state: AgentStateValue, config) => {
-        const strategy = this.strategySelector.selectStrategy(
-          state.analysis!.intent,
-          state.retrievalQuestion,
-          state.originalQuestion,
-        );
-        this.emit(
-          {
-            type: AguiEventType.TOOL_CALL,
-            timestamp: Date.now(),
-            toolName: 'retrieval',
-            args: {
-              query: state.analysis!.rewritten,
-              intent: state.analysis!.intent,
-              entityTerms: state.analysis!.entityTerms ?? [],
-              searchType: strategy.searchType,
-              useKnowledgeGraph: strategy.useKnowledgeGraph,
-              expandQuery: strategy.expandQuery,
-              candidateTopK: strategy.candidateTopK,
-              finalTopK: strategy.topK,
-            },
-          },
-          config,
-        );
-
-        this.logger.verbose(
-          `[langgraph][strategy] ${JSON.stringify(strategy, null, 2)}`,
-        );
-
-        return { strategy };
-      })
       // 跨轮合并、去重并限制上下文大小，避免生成提示词无限增长。
       .addNode('retrieve', async (state: AgentStateValue, config) => {
-        const { analysis, strategy } = state;
+        const { analysis } = state;
+        const strategy = analysis!.strategy!;
         this.emit(
           {
             type: AguiEventType.RETRIEVAL_START,
@@ -454,9 +421,7 @@ export class AgentOrchestrator {
               chunkId: chunk.chunkId,
               documentId: chunk.documentId,
               documentTitle: chunk.documentTitle,
-              content: state.options.evaluationMode
-                ? chunk.content
-                : `${chunk.content.substring(0, 200)}...`,
+              content: `${chunk.content.substring(0, 200)}...`,
               similarity: chunk.similarity,
             })),
           },
@@ -624,11 +589,10 @@ export class AgentOrchestrator {
           !state.analysis!.needsRetrieval ||
           state.analysis!.intent === QueryIntent.CHITCHAT
             ? 'directGenerate'
-            : 'selectStrategy',
-        ['directGenerate', 'selectStrategy'],
+            : 'retrieve',
+        ['directGenerate', 'retrieve'],
       )
       .addEdge('directGenerate', END)
-      .addEdge('selectStrategy', 'retrieve')
       .addEdge('retrieve', 'generateDraft')
       .addEdge('generateDraft', 'evaluate')
       // 质量不足且可继续时回到 analyze，否则输出当前最佳答案。
@@ -652,7 +616,12 @@ export class AgentOrchestrator {
    * Agentic RAG 流式查询（AGUI 规范）
    */
   async *queryStream(input: QueryStreamInput): AsyncGenerator<AguiEventUnion> {
-    const { question: originalQuestion, context, ...options } = input;
+    const {
+      question: originalQuestion,
+      conversationId,
+      context,
+      ...options
+    } = input;
     const queryId = this.generateQueryId();
     const maxIter = this.maxIterations;
     const langfuseHandler = isLangfuseTracingEnabled
@@ -661,7 +630,7 @@ export class AgentOrchestrator {
     yield {
       type: AguiEventType.METADATA,
       timestamp: Date.now(),
-      data: { queryId, maxIterations: maxIter },
+      data: { conversationId, queryId, maxIterations: maxIter },
     };
 
     try {

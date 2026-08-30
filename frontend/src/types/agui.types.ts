@@ -117,11 +117,10 @@ export interface AguiDoneEvent extends AguiBaseEvent {
  */
 export interface AguiMetadataEvent extends AguiBaseEvent {
   type: AguiEventType.METADATA;
-  conversationId?: string;
-  queryId?: string;
-  data?: {
-    conversationId?: string;
-    queryId?: string;
+  data: {
+    conversationId: string;
+    queryId: string;
+    maxIterations: number;
   };
 }
 

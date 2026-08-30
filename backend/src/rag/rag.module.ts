@@ -11,7 +11,6 @@ import { RerankerService } from './reranker.service';
 import { GenerationService } from './generation.service';
 import { PipelineModule } from '../pipeline/pipeline.module';
 import { QuestionAnalyzer } from './agent/question-analyzer.service';
-import { StrategySelector } from './agent/strategy-selector.service';
 import { AnswerEvaluator } from './agent/answer-evaluator.service';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
 import { ConversationService } from './conversation.service';
@@ -57,7 +56,6 @@ import { LlmModule } from '../llm/llm.module';
     RerankerService,
     GenerationService,
     QuestionAnalyzer,
-    StrategySelector,
     AnswerEvaluator,
     AgentOrchestrator,
     ConversationService,

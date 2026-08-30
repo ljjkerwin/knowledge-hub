@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsInt,
-  Min,
-  Max,
-  IsBoolean,
-} from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ChatDto {
@@ -15,11 +8,6 @@ export class ChatDto {
   @IsOptional()
   @IsString()
   conversationId?: string;
-
-  /** 评估 Runner 使用：在检索事件中返回完整 chunk，普通聊天保持 200 字预览。 */
-  @IsOptional()
-  @IsBoolean()
-  evaluationMode?: boolean = false;
 }
 
 export class ConversationListDto {

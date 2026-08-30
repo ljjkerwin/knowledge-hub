@@ -88,7 +88,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // 新会话创建后，后端会先推送 metadata。此时立即在侧栏显示它，
         // 不必等待整段回答完成或下一次刷新会话列表。
         if (isNewConversation && aguiEvent.type === AguiEventType.METADATA) {
-          const newConversationId = aguiEvent.conversationId ?? aguiEvent.data?.conversationId;
+          const newConversationId = aguiEvent.data.conversationId;
           if (newConversationId) {
             const now = new Date().toISOString();
             const title = input.length > 20 ? `${input.substring(0, 20)}...` : input;
@@ -201,11 +201,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   handleStreamEvent: (event: AguiEvent) => {
     switch (event.type) {
       case AguiEventType.METADATA:
-        // 兼容后端直接返回元数据，以及经 SSE/代理封装到 data 内的元数据。
-        const conversationId = event.conversationId ?? event.data?.conversationId;
-        if (conversationId) {
-          set({ conversationId });
-        }
+        set({ conversationId: event.data.conversationId });
         break;
 
       case AguiEventType.THINKING:

@@ -57,13 +57,7 @@ export class RagController {
 
     void startActiveObservation('rag.chat.stream', async (span) => {
       try {
-        span.update({
-          input: {
-            messageLength: dto.message.length,
-            evaluationMode: dto.evaluationMode ?? false,
-          },
-        });
-
+        span.update({ input: { messageLength: dto.message.length } });
         // 1. 获取或创建对话
         let conversationId = dto.conversationId;
         if (!conversationId) {
@@ -71,15 +65,6 @@ export class RagController {
             req.user.id,
           );
           conversationId = conversation.id;
-
-          // 发送对话 ID
-          subject.next({
-            data: JSON.stringify({
-              type: AguiEventType.METADATA,
-              timestamp: Date.now(),
-              conversationId,
-            }),
-          } as MessageEvent);
         } else {
           // 校验用户是否有权访问指定会话
           await this.conversationService.findOneForUser(
@@ -109,18 +94,16 @@ export class RagController {
 
         for await (const event of this.agentOrchestrator.queryStream({
           question: dto.message,
+          conversationId,
           context,
           enableFollowUp: true,
-          evaluationMode: dto.evaluationMode,
         })) {
           subject.next({
             data: JSON.stringify(event),
           } as MessageEvent);
 
           // 收集答案信息
-          if (event.type === AguiEventType.TEXT) {
-            answerText += event.content;
-          }
+          if (event.type === AguiEventType.TEXT) answerText += event.content;
           // 检索结果
           if (event.type === AguiEventType.RETRIEVAL_RESULT) {
             lastCitations = event.chunks.map((c: any, i: number) => ({
@@ -141,9 +124,7 @@ export class RagController {
             totalIterations = event.totalIterations;
             didComplete = true;
           }
-          if (event.type === AguiEventType.ERROR) {
-            streamError = event.message;
-          }
+          if (event.type === AguiEventType.ERROR) streamError = event.message;
         }
 
         // queryStream 会将 Agent 内部异常转为 ERROR 事件，因此不能仅依赖 catch

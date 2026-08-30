@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { BaseLanguageModelInput } from '@langchain/core/language_models/base';
@@ -6,6 +7,7 @@ import { Runnable } from '@langchain/core/runnables';
 import { z } from 'zod';
 import { LlmService } from '../../llm/llm.service';
 import type { ConversationContext } from '../context-manager.service';
+import { SearchType } from '../types/search.types';
 
 // 查询意图枚举
 export enum QueryIntent {
@@ -39,9 +41,7 @@ const analysisSchema = z.object({
     .describe(
       '问题中明确出现、适合与知识图谱实体名称或别名匹配的实体词；不要包含“怎么、如何、哪些”等泛化词',
     ),
-  needsRetrieval: z
-    .boolean()
-    .describe('是否需要查询知识库才能可靠回答'),
+  needsRetrieval: z.boolean().describe('是否需要查询知识库才能可靠回答'),
 });
 // LangChain 的 structured output 类型将带 default 的字段视为可选，
 // 因此在边界上兼容缺失值，业务代码统一使用 `?? []`。
@@ -51,6 +51,92 @@ export type RewrittenQuery = Omit<
 > & {
   entityTerms?: string[];
 };
+
+export interface RetrievalStrategy {
+  searchType: SearchType;
+  /** 最终送入生成阶段的片段数量 */
+  topK: number;
+  /** 每条 query 召回的候选数量；扩展查询合并后会截断为 topK */
+  candidateTopK: number;
+  expandQuery: boolean;
+  useKnowledgeGraph: boolean;
+  sourceWeights: {
+    vector: number;
+    keyword: number;
+    graph: number;
+  };
+}
+
+/** Analyzer 的完整输出：语义分析结果，以及需要检索时的确定性执行策略。 */
+export interface AnalyzedQuestion extends RewrittenQuery {
+  strategy?: RetrievalStrategy;
+}
+
+/**
+ * 根据分析结果和查询文本构造检索策略。
+ *
+ * 策略是确定性执行配置，不交给 LLM 生成；保留为纯函数便于独立回归规则边界。
+ */
+export function buildRetrievalStrategy(
+  intent: QueryIntent,
+  question: string,
+  originalQuestion: string | undefined,
+  defaultTopK: number,
+): RetrievalStrategy {
+  const featureText = [question, originalQuestion].filter(Boolean).join('\n');
+  const hasStrongExactTerm =
+    /\b[A-Z]{2,}[\d_-]*\b/.test(featureText) ||
+    /\bv?\d+(?:\.\d+){1,}\b/i.test(featureText);
+  const hasQuotedTerm = /["'“”‘’`]/.test(featureText);
+  const isPureIdentifier =
+    /^\s*["'“”‘’`]?(?:[A-Z]{2,}[A-Z\d_.-]*|v?\d+(?:\.\d+)+)["'“”‘’`]?\s*$/i.test(
+      question,
+    );
+  const isGraphQuestion =
+    /关系|关联|依赖|影响|导致|上下游|区别|对比|比较|相关|负责|职责|审批|隶属|管理|归属|谁/.test(
+      featureText,
+    );
+  const strategy: RetrievalStrategy = {
+    searchType: SearchType.HYBRID,
+    topK: defaultTopK,
+    candidateTopK: defaultTopK + 2,
+    expandQuery:
+      intent === QueryIntent.PROCEDURAL ||
+      intent === QueryIntent.COMPARATIVE ||
+      intent === QueryIntent.EXPLANATORY,
+    useKnowledgeGraph: intent === QueryIntent.COMPARATIVE || isGraphQuestion,
+    sourceWeights: { vector: 1, keyword: 0.8, graph: 1 },
+  };
+
+  if (isPureIdentifier) {
+    return {
+      ...strategy,
+      searchType: SearchType.KEYWORD,
+      useKnowledgeGraph: false,
+      sourceWeights: { vector: 0, keyword: 1.2, graph: 0 },
+    };
+  }
+
+  if (hasStrongExactTerm) {
+    return {
+      ...strategy,
+      searchType: SearchType.HYBRID,
+      sourceWeights: {
+        vector: 0.8,
+        keyword: 1.2,
+        graph: strategy.useKnowledgeGraph ? 1 : 0.5,
+      },
+    };
+  }
+
+  if (!hasQuotedTerm) return strategy;
+
+  return {
+    ...strategy,
+    searchType: SearchType.HYBRID,
+    sourceWeights: { vector: 0.6, keyword: 1.2, graph: 0.3 },
+  };
+}
 
 /** 边界明确的寒暄可在不调用模型的情况下判定。 */
 export function isSimpleChitchat(question: string): boolean {
@@ -72,8 +158,12 @@ export class QuestionAnalyzer {
     BaseLanguageModelInput,
     RewrittenQuery
   >;
+  private readonly defaultTopK: number;
 
-  constructor(private readonly llmService: LlmService) {
+  constructor(
+    private readonly llmService: LlmService,
+    private readonly config: ConfigService,
+  ) {
     this.llm = this.llmService.create({
       temperature: 0.3, // 低温度以获得稳定输出
       maxTokens: 500,
@@ -81,12 +171,13 @@ export class QuestionAnalyzer {
     this.structuredLlm = this.llm.withStructuredOutput(analysisSchema, {
       name: 'analyze_question',
     });
+    this.defaultTopK = Number(this.config.get('RAG_TOP_K', 5));
   }
 
   /**
    * 一次模型调用完成：结合历史补全、是否检索、改写、意图识别和查询扩展。
    */
-  async analyze(input: QuestionAnalysisInput): Promise<RewrittenQuery> {
+  async analyze(input: QuestionAnalysisInput): Promise<AnalyzedQuestion> {
     const { question, context } = input;
     this.logger.log(`分析问题: ${question}`);
 
@@ -111,24 +202,48 @@ export class QuestionAnalyzer {
         `问题分析完成: 意图=${validated.intent}, 扩展查询=${validated.expandedQueries.length}个`,
       );
 
-      return {
+      const analysis: RewrittenQuery = {
         rewritten: validated.rewritten.trim() || question,
         intent: validated.intent,
         expandedQueries: validated.expandedQueries,
         entityTerms: validated.entityTerms,
         needsRetrieval: validated.needsRetrieval,
       };
+      return this.withStrategy(analysis, question);
     } catch (error) {
       this.logger.error(`问题分析失败: ${error.message}`);
       // 降级处理：返回原始问题
-      return {
-        rewritten: question,
-        intent: QueryIntent.FACTUAL,
-        expandedQueries: [question],
-        entityTerms: [],
-        needsRetrieval: true,
-      };
+      return this.withStrategy(
+        {
+          rewritten: question,
+          intent: QueryIntent.FACTUAL,
+          expandedQueries: [question],
+          entityTerms: [],
+          needsRetrieval: true,
+        },
+        question,
+      );
     }
+  }
+
+  private withStrategy(
+    analysis: RewrittenQuery,
+    originalQuestion: string,
+  ): AnalyzedQuestion {
+    if (!analysis.needsRetrieval || analysis.intent === QueryIntent.CHITCHAT) {
+      return analysis;
+    }
+
+    const strategy = buildRetrievalStrategy(
+      analysis.intent,
+      analysis.rewritten,
+      originalQuestion,
+      this.defaultTopK,
+    );
+    this.logger.log(
+      `选择检索策略: 意图=${analysis.intent}, 检索方式=${strategy.searchType}, topK=${strategy.topK}, 候选=${strategy.candidateTopK}`,
+    );
+    return { ...analysis, strategy };
   }
 
   /**
@@ -174,21 +289,23 @@ export class QuestionAnalyzer {
 请依据 schema 返回结构化结果。`;
   }
 
-  private buildPrompt(
-    question: string,
-    context?: ConversationContext,
-  ): string {
+  private buildPrompt(question: string, context?: ConversationContext): string {
     const parts: string[] = [];
     if (context?.summary) parts.push(`## 对话摘要\n${context.summary}`);
     if (context?.history.length) {
       parts.push(
         `## 历史对话\n${context.history
-          .map((message) => `${message.role === 'user' ? '用户' : '助手'}: ${message.content}`)
+          .map(
+            (message) =>
+              `${message.role === 'user' ? '用户' : '助手'}: ${message.content}`,
+          )
           .join('\n\n')}`,
       );
     }
     parts.push(`<user_request>\n${question}\n</user_request>`);
-    parts.push('只分析 user_request 中的用户请求；历史和摘要仅用于补全上下文。');
+    parts.push(
+      '只分析 user_request 中的用户请求；历史和摘要仅用于补全上下文。',
+    );
     return parts.join('\n\n');
   }
 
