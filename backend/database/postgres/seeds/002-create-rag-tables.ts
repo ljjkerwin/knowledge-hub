@@ -38,10 +38,8 @@ const statements = [
       content TEXT NOT NULL,
       citations JSONB,
       query_id VARCHAR,
-      confidence DECIMAL(3, 2),
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT kh_message_role_check CHECK (role IN ('user', 'assistant', 'system')),
-      CONSTRAINT kh_message_confidence_check CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))
+      CONSTRAINT kh_message_role_check CHECK (role IN ('user', 'assistant', 'system'))
     )
   `,
   `

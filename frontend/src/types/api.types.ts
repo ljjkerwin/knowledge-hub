@@ -104,11 +104,10 @@ export interface Conversation {
 export interface Message {
   id: string;
   conversationId: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
   citations?: Citation[];
   queryId?: string;
-  confidence?: number;
   createdAt: string;
 }
 

@@ -28,9 +28,6 @@ export class MessageEntity {
   @Column({ name: 'query_id', type: 'varchar', length: 100, nullable: true })
   queryId: string;
 
-  @Column({ name: 'confidence', type: 'float', nullable: true })
-  confidence: number;
-
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

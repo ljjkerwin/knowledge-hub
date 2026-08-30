@@ -153,7 +153,6 @@ export class ConversationService {
     metadata?: {
       citations?: Citation[];
       queryId?: string;
-      confidence?: number;
     },
   ): Promise<MessageEntity> {
     const message = this.em.create(MessageEntity, {
@@ -163,7 +162,6 @@ export class ConversationService {
       content,
       citations: metadata?.citations,
       queryId: metadata?.queryId,
-      confidence: metadata?.confidence,
     });
 
     await this.em.save(message);

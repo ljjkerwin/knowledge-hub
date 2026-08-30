@@ -9,7 +9,10 @@ import {
   QueryIntent,
   RetrievalStrategy,
 } from './question-analyzer.service';
-import { AnswerEvaluator, EvaluationResult } from './answer-evaluator.service';
+import {
+  DraftAssessment,
+  DraftAssessmentService,
+} from './answer-evaluator.service';
 import { RetrievalService } from '../retrieval.service';
 import { GraphRetrievalService } from '../graph-retrieval.service';
 import { FusionService, RankedRetrievalResult } from '../fusion.service';
@@ -21,6 +24,11 @@ import {
   AguiEventUnion,
   AguiStreamOptions,
 } from '../types/agui.types';
+import {
+  AgentRunInput,
+  AgentRunResult,
+  AgentRunResultCollector,
+} from './agent-run-result';
 import { SearchType } from '../types/search.types';
 import type { ConversationContext } from '../context-manager.service';
 import { CallbackHandler } from '@langfuse/langchain';
@@ -49,20 +57,16 @@ const AgentState = Annotation.Root({
   draft: Annotation<GeneratedAnswer | undefined>,
   bestAnswer: Annotation<GeneratedAnswer | undefined>,
   bestRelevance: Annotation<number>,
-  evaluation: Annotation<EvaluationResult | undefined>,
+  draftAssessment: Annotation<DraftAssessment | undefined>,
   shouldContinue: Annotation<boolean>,
 });
 
 type AgentStateValue = typeof AgentState.State;
 
-/** Agent 流式查询的完整输入；Controller 只负责准备会话上下文并转发 SSE。 */
-export interface QueryStreamInput extends AguiStreamOptions {
-  /** 用户本轮输入的原始问题，用于保留精确术语。 */
-  question: string;
+/** SSE 适配层补充会话标识；核心 AgentRunInput 不依赖会话持久化。 */
+export interface QueryStreamInput extends AgentRunInput {
   /** 当前聊天轮次所属会话；随首个 metadata 事件发送并用于 trace session。 */
   conversationId: string;
-  /** 必须在保存当前用户消息前构建，避免问题参与自身的上下文改写。 */
-  context: ConversationContext;
 }
 
 @Injectable()
@@ -81,7 +85,7 @@ export class AgentOrchestrator {
     private readonly fusionService: FusionService,
     private readonly rerankerService: RerankerService,
     private readonly generationService: GenerationService,
-    private readonly answerEvaluator: AnswerEvaluator,
+    private readonly draftAssessmentService: DraftAssessmentService,
     private readonly config: ConfigService,
   ) {
     this.maxIterations = Number(this.config.get('RAG_MAX_ITERATIONS', 3));
@@ -103,13 +107,10 @@ export class AgentOrchestrator {
   private async executeRetrieval(
     analysis: RewrittenQuery,
     strategy: RetrievalStrategy,
-    options?: AguiStreamOptions,
     originalQuery?: string,
   ): Promise<RetrievedChunk[]> {
     const searchOptions = {
       topK: strategy.candidateTopK,
-      categoryId: options?.categoryId,
-      teamId: options?.teamId,
     };
 
     const queries = this.buildRetrievalQueries(
@@ -327,6 +328,17 @@ export class AgentOrchestrator {
         });
         this.emit(
           {
+            type: AguiEventType.ANALYSIS,
+            timestamp: Date.now(),
+            rewritten: analysis.rewritten,
+            intent: analysis.intent,
+            needsRetrieval: analysis.needsRetrieval,
+            entityTerms: analysis.entityTerms ?? [],
+          },
+          config,
+        );
+        this.emit(
+          {
             type: AguiEventType.THINKING,
             timestamp: Date.now(),
             content: `问题意图: ${analysis.intent}, 改写为: "${analysis.rewritten}"`,
@@ -401,7 +413,6 @@ export class AgentOrchestrator {
         const chunks = await this.executeRetrieval(
           analysis!,
           strategy!,
-          state.options,
           state.originalQuestion,
         );
 
@@ -449,50 +460,53 @@ export class AgentOrchestrator {
         return { draft };
       })
       // 更新最佳草稿，并决定跳回 analyze 开始下一轮或进入 finalize。
-      .addNode('evaluate', async (state: AgentStateValue, config) => {
-        const evaluation = await this.answerEvaluator.evaluate(
+      .addNode('assessDraft', async (state: AgentStateValue, config) => {
+        const assessment = await this.draftAssessmentService.assessDraft(
           state.answerQuestion,
           state.draft!,
         );
 
         this.logger.verbose(
-          `[langgraph][evaluation] ${JSON.stringify(evaluation, null, 2)}`,
+          `[langgraph][draftAssessment] ${JSON.stringify(assessment, null, 2)}`,
         );
 
         this.emit(
           {
-            type: AguiEventType.EVALUATION,
+            type: AguiEventType.DRAFT_ASSESSMENT,
             timestamp: Date.now(),
-            relevance: evaluation.relevance,
-            completeness: evaluation.completeness,
-            needsFollowUp: evaluation.needsFollowUp,
-            followUpQuestion: evaluation.followUpQuestion,
-            missingAspects: evaluation.missingAspects,
-            followUpQueries: evaluation.followUpQueries,
+            answerRelevance: assessment.answerRelevance,
+            answerCompleteness: assessment.answerCompleteness,
+            shouldRetrieveMore: assessment.shouldRetrieveMore,
+            followUpQuestion: assessment.followUpQuestion,
+            missingAspects: assessment.missingAspects,
+            followUpQueries: assessment.followUpQueries,
           },
           config,
         );
         const best =
-          evaluation.relevance > state.bestRelevance
+          assessment.answerRelevance > state.bestRelevance
             ? state.draft!
             : state.bestAnswer!;
         const canContinue =
           state.options.enableFollowUp !== false &&
-          this.answerEvaluator.shouldFollowUp(evaluation) &&
+          this.draftAssessmentService.shouldRetrieveMore(assessment) &&
           state.iteration < state.maxIterations;
         if (!canContinue)
           return {
-            evaluation,
+            draftAssessment: assessment,
             bestAnswer: best,
-            bestRelevance: Math.max(state.bestRelevance, evaluation.relevance),
+            bestRelevance: Math.max(
+              state.bestRelevance,
+              assessment.answerRelevance,
+            ),
             shouldContinue: false,
           };
         const normalizedCurrent = state.retrievalQuestion
           .normalize('NFKC')
           .toLocaleLowerCase();
         const nextQuestion = [
-          ...evaluation.followUpQueries,
-          evaluation.followUpQuestion,
+          ...assessment.followUpQueries,
+          assessment.followUpQuestion,
           ...state.analysis!.expandedQueries,
         ]
           .filter((query): query is string => Boolean(query?.trim()))
@@ -508,25 +522,31 @@ export class AgentOrchestrator {
           });
         if (!nextQuestion)
           return {
-            evaluation,
+            draftAssessment: assessment,
             bestAnswer: best,
-            bestRelevance: Math.max(state.bestRelevance, evaluation.relevance),
+            bestRelevance: Math.max(
+              state.bestRelevance,
+              assessment.answerRelevance,
+            ),
             shouldContinue: false,
           };
         this.emit(
           {
             type: AguiEventType.THINKING,
             timestamp: Date.now(),
-            content: evaluation.followUpQuestion
+            content: assessment.followUpQuestion
               ? `需要追问: "${nextQuestion}"`
               : `使用扩展查询: "${nextQuestion}"`,
           },
           config,
         );
         return {
-          evaluation,
+          draftAssessment: assessment,
           bestAnswer: best,
-          bestRelevance: Math.max(state.bestRelevance, evaluation.relevance),
+          bestRelevance: Math.max(
+            state.bestRelevance,
+            assessment.answerRelevance,
+          ),
           retrievalQuestion: nextQuestion,
           iteration: state.iteration + 1,
           shouldContinue: true,
@@ -594,10 +614,10 @@ export class AgentOrchestrator {
       )
       .addEdge('directGenerate', END)
       .addEdge('retrieve', 'generateDraft')
-      .addEdge('generateDraft', 'evaluate')
+      .addEdge('generateDraft', 'assessDraft')
       // 质量不足且可继续时回到 analyze，否则输出当前最佳答案。
       .addConditionalEdges(
-        'evaluate',
+        'assessDraft',
         (state: AgentStateValue) =>
           state.shouldContinue ? 'analyze' : 'finalize',
         ['analyze', 'finalize'],
@@ -613,25 +633,21 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Agentic RAG 流式查询（AGUI 规范）
+   * Agent 核心执行的实时事件流。不依赖 HTTP、鉴权或会话持久化。
+   *
+   * 线上 SSE 与离线 run() 都消费这一条执行路径，避免评测逻辑偏离生产逻辑。
    */
-  async *queryStream(input: QueryStreamInput): AsyncGenerator<AguiEventUnion> {
+  async *runEvents(input: AgentRunInput): AsyncGenerator<AguiEventUnion> {
     const {
       question: originalQuestion,
-      conversationId,
       context,
+      queryId: providedQueryId,
       ...options
     } = input;
-    const queryId = this.generateQueryId();
-    const maxIter = this.maxIterations;
+    const queryId = providedQueryId ?? this.generateQueryId();
     const langfuseHandler = isLangfuseTracingEnabled
       ? new CallbackHandler()
       : undefined;
-    yield {
-      type: AguiEventType.METADATA,
-      timestamp: Date.now(),
-      data: { conversationId, queryId, maxIterations: maxIter },
-    };
 
     try {
       const stream = await this.graph.stream(
@@ -642,7 +658,7 @@ export class AgentOrchestrator {
           retrievalQuestion: originalQuestion,
           context,
           options,
-          maxIterations: maxIter,
+          maxIterations: this.maxIterations,
           iteration: 1,
           completedIterations: 0,
           allChunks: [],
@@ -665,6 +681,42 @@ export class AgentOrchestrator {
         message: error.message,
       };
     }
+  }
+
+  /**
+   * 运行一次完整 Agent 并汇总为可复现、可离线评测的结果。
+   * 此方法不会创建会话、保存消息或调用 HTTP 层。
+   */
+  async run(input: AgentRunInput): Promise<AgentRunResult> {
+    const queryId = input.queryId ?? this.generateQueryId();
+    const collector = new AgentRunResultCollector(queryId);
+
+    for await (const event of this.runEvents({ ...input, queryId })) {
+      collector.consume(event);
+    }
+
+    return collector.finish();
+  }
+
+  /**
+   * Agentic RAG 的 SSE/AGUI 适配层。
+   * 会话 metadata 属于传输协议；实际执行完全委托给 runEvents()。
+   */
+  async *queryStream(input: QueryStreamInput): AsyncGenerator<AguiEventUnion> {
+    const { conversationId, ...runInput } = input;
+    const queryId = runInput.queryId ?? this.generateQueryId();
+
+    yield {
+      type: AguiEventType.METADATA,
+      timestamp: Date.now(),
+      data: {
+        conversationId,
+        queryId,
+        maxIterations: this.maxIterations,
+      },
+    };
+
+    yield* this.runEvents({ ...runInput, queryId });
   }
 
   /** 将已生成答案拆为适合 SSE 逐步展示的片段，优先保留段落和句子边界。 */

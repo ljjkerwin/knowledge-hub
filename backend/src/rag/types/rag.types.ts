@@ -31,8 +31,6 @@ export interface Citation {
 export interface GeneratedAnswer {
   answer: string;
   citations: Citation[];
-  /** 检索片段相似度的聚合值，不代表答案本身的置信度。 */
-  retrievalConfidence: number;
 }
 
 // 检索选项

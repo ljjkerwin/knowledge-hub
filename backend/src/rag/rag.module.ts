@@ -11,7 +11,7 @@ import { RerankerService } from './reranker.service';
 import { GenerationService } from './generation.service';
 import { PipelineModule } from '../pipeline/pipeline.module';
 import { QuestionAnalyzer } from './agent/question-analyzer.service';
-import { AnswerEvaluator } from './agent/answer-evaluator.service';
+import { DraftAssessmentService } from './agent/answer-evaluator.service';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
 import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
@@ -56,7 +56,7 @@ import { LlmModule } from '../llm/llm.module';
     RerankerService,
     GenerationService,
     QuestionAnalyzer,
-    AnswerEvaluator,
+    DraftAssessmentService,
     AgentOrchestrator,
     ConversationService,
     ContextManager,

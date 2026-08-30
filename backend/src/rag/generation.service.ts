@@ -36,10 +36,8 @@ export class GenerationService {
 
       // 4. 解析响应
       const answer = response.content as string;
-      const retrievalConfidence = this.calculateConfidence(context, answer);
-
-      this.logger.log(`答案生成完成，检索匹配度: ${retrievalConfidence}`);
-      return { answer, citations, retrievalConfidence };
+      this.logger.log('答案生成完成');
+      return { answer, citations };
     } catch (error) {
       this.logger.error(`答案生成失败: ${error.message}`);
       throw error;
@@ -61,7 +59,6 @@ export class GenerationService {
           yield { type: 'token', content: chunk.content };
         }
       }
-      yield { type: 'confidence', content: 1 };
     } catch (error) {
       this.logger.error(`普通对话流式生成失败: ${error.message}`);
       yield { type: 'error', content: error.message };
@@ -175,34 +172,5 @@ ${query}
       heading: chunk.heading,
       similarity: chunk.similarity,
     }));
-  }
-
-  /**
-   * 计算置信度
-   */
-  private calculateConfidence(
-    context: RetrievedChunk[],
-    answer: string,
-  ): number {
-    if (context.length === 0) return 0;
-
-    // 基于检索结果的相似度计算基础置信度
-    const avgSimilarity =
-      context.reduce((sum, chunk) => sum + chunk.similarity, 0) /
-      context.length;
-
-    // 根据结果数量调整（结果越多越自信）
-    const resultCountFactor = Math.min(context.length / 3, 1);
-
-    // 根据最高相似度调整
-    const maxSimilarity = Math.max(...context.map((c) => c.similarity));
-    const maxSimilarityFactor =
-      maxSimilarity > 0.8 ? 1 : maxSimilarity > 0.6 ? 0.8 : 0.6;
-
-    // 综合计算
-    const confidence =
-      avgSimilarity * 0.4 + resultCountFactor * 0.3 + maxSimilarityFactor * 0.3;
-
-    return Math.round(confidence * 100) / 100;
   }
 }

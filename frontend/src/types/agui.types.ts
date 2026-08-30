@@ -2,16 +2,17 @@
  * AGUI 事件类型
  */
 export enum AguiEventType {
-  TEXT = 'text',
-  THINKING = 'thinking',
-  TOOL_CALL = 'tool_call',
-  TOOL_RESULT = 'tool_result',
-  RETRIEVAL_START = 'retrieval_start',
-  RETRIEVAL_RESULT = 'retrieval_result',
-  EVALUATION = 'evaluation',
-  ERROR = 'error',
-  DONE = 'done',
-  METADATA = 'metadata',
+  TEXT = "text",
+  THINKING = "thinking",
+  ANALYSIS = "analysis",
+  TOOL_CALL = "tool_call",
+  TOOL_RESULT = "tool_result",
+  RETRIEVAL_START = "retrieval_start",
+  RETRIEVAL_RESULT = "retrieval_result",
+  DRAFT_ASSESSMENT = "draft_assessment",
+  ERROR = "error",
+  DONE = "done",
+  METADATA = "metadata",
 }
 
 /**
@@ -37,6 +38,15 @@ export interface AguiTextEvent extends AguiBaseEvent {
 export interface AguiThinkingEvent extends AguiBaseEvent {
   type: AguiEventType.THINKING;
   content: string;
+}
+
+/** 问题分析事件；可用于调试面板，当前聊天视图不展示。 */
+export interface AguiAnalysisEvent extends AguiBaseEvent {
+  type: AguiEventType.ANALYSIS;
+  rewritten: string;
+  intent: string;
+  needsRetrieval: boolean;
+  entityTerms: string[];
 }
 
 /**
@@ -81,14 +91,13 @@ export interface AguiRetrievalResultEvent extends AguiBaseEvent {
 }
 
 /**
- * 评估事件
+ * 草稿运行时评审事件；用于 Agent 内部决定是否继续检索，不代表最终质量。
  */
-export interface AguiEvaluationEvent extends AguiBaseEvent {
-  type: AguiEventType.EVALUATION;
-  relevance: number;
-  completeness: number;
-  confidence: number;
-  needsFollowUp: boolean;
+export interface AguiDraftAssessmentEvent extends AguiBaseEvent {
+  type: AguiEventType.DRAFT_ASSESSMENT;
+  answerRelevance: number;
+  answerCompleteness: number;
+  shouldRetrieveMore: boolean;
   followUpQuestion?: string;
   missingAspects?: string[];
   followUpQueries?: string[];
@@ -130,11 +139,12 @@ export interface AguiMetadataEvent extends AguiBaseEvent {
 export type AguiEvent =
   | AguiTextEvent
   | AguiThinkingEvent
+  | AguiAnalysisEvent
   | AguiToolCallEvent
   | AguiToolResultEvent
   | AguiRetrievalStartEvent
   | AguiRetrievalResultEvent
-  | AguiEvaluationEvent
+  | AguiDraftAssessmentEvent
   | AguiErrorEvent
   | AguiDoneEvent
   | AguiMetadataEvent;

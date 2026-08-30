@@ -5,6 +5,7 @@ export enum AguiEventType {
   // 消息相关
   TEXT = 'text', // 文本内容
   THINKING = 'thinking', // 思考过程
+  ANALYSIS = 'analysis', // 问题分析结果
 
   // 工具相关
   TOOL_CALL = 'tool_call', // 工具调用
@@ -14,8 +15,8 @@ export enum AguiEventType {
   RETRIEVAL_START = 'retrieval_start', // 开始检索
   RETRIEVAL_RESULT = 'retrieval_result', // 检索结果
 
-  // 评估相关
-  EVALUATION = 'evaluation', // 评估结果
+  // 草稿运行时评审相关；用于决定是否继续检索，不代表最终质量真值。
+  DRAFT_ASSESSMENT = 'draft_assessment',
 
   // 状态相关
   ERROR = 'error', // 错误
@@ -39,6 +40,15 @@ export interface AguiTextEvent extends AguiEvent {
 export interface AguiThinkingEvent extends AguiEvent {
   type: AguiEventType.THINKING;
   content: string;
+}
+
+/** 问题分析事件；用于记录路由与改写结果。 */
+export interface AguiAnalysisEvent extends AguiEvent {
+  type: AguiEventType.ANALYSIS;
+  rewritten: string;
+  intent: string;
+  needsRetrieval: boolean;
+  entityTerms: string[];
 }
 
 // 工具调用事件
@@ -74,12 +84,12 @@ export interface AguiRetrievalResultEvent extends AguiEvent {
   }>;
 }
 
-// 评估事件
-export interface AguiEvaluationEvent extends AguiEvent {
-  type: AguiEventType.EVALUATION;
-  relevance: number;
-  completeness: number;
-  needsFollowUp: boolean;
+// 草稿运行时评审事件
+export interface AguiDraftAssessmentEvent extends AguiEvent {
+  type: AguiEventType.DRAFT_ASSESSMENT;
+  answerRelevance: number;
+  answerCompleteness: number;
+  shouldRetrieveMore: boolean;
   followUpQuestion?: string;
   missingAspects?: string[];
   followUpQueries?: string[];
@@ -113,11 +123,12 @@ export interface AguiMetadataEvent extends AguiEvent {
 export type AguiEventUnion =
   | AguiTextEvent
   | AguiThinkingEvent
+  | AguiAnalysisEvent
   | AguiToolCallEvent
   | AguiToolResultEvent
   | AguiRetrievalStartEvent
   | AguiRetrievalResultEvent
-  | AguiEvaluationEvent
+  | AguiDraftAssessmentEvent
   | AguiErrorEvent
   | AguiDoneEvent
   | AguiMetadataEvent;
@@ -125,6 +136,4 @@ export type AguiEventUnion =
 // AGUI 流式响应选项
 export interface AguiStreamOptions {
   enableFollowUp?: boolean;
-  categoryId?: string;
-  teamId?: string;
 }

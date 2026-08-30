@@ -87,7 +87,6 @@ export class RagController {
         let answerText = '';
         let lastQueryId = '';
         let lastCitations: any[] = []; // 引用
-        let lastConfidence = 0;
         let didComplete = false;
         let streamError: string | undefined;
         let totalIterations = 0;
@@ -114,10 +113,6 @@ export class RagController {
               content: c.content,
               score: c.similarity,
             }));
-          }
-          // 评估结果
-          if (event.type === AguiEventType.EVALUATION) {
-            lastConfidence = event.relevance ?? 0;
           }
           if (event.type === AguiEventType.DONE) {
             lastQueryId = event.queryId;
@@ -146,7 +141,6 @@ export class RagController {
           {
             citations: lastCitations,
             queryId: lastQueryId,
-            confidence: lastConfidence,
           },
         );
 

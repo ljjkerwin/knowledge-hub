@@ -7,12 +7,14 @@ import { z } from 'zod';
 import { GeneratedAnswer } from '../types/rag.types';
 import { LlmService } from '../../llm/llm.service';
 
-// 评估结果
-export interface EvaluationResult {
-  relevance: number; // 相关性（0-1）
-  completeness: number; // 完整性（0-1）
-  confidence: number; // 置信度（0-1）
-  needsFollowUp: boolean; // 是否需要追问
+/**
+ * 当前草稿的运行时评审结果，仅用于决定是否继续检索。
+ * 它不是用户可见的置信度，也不是独立的最终质量评估。
+ */
+export interface DraftAssessment {
+  answerRelevance: number;
+  answerCompleteness: number;
+  shouldRetrieveMore: boolean;
   followUpQuestion?: string; // 追问建议
   missingAspects: string[]; // 当前答案缺失的具体方面
   followUpQueries: string[]; // 针对缺口生成的检索查询
@@ -20,10 +22,18 @@ export interface EvaluationResult {
 }
 
 // LLM 输出 schema
-const evaluationSchema = z.object({
-  relevance: z.number().min(0).max(1).describe('答案与问题的相关性，0-1'),
-  completeness: z.number().min(0).max(1).describe('答案的完整性，0-1'),
-  needsFollowUp: z.boolean().describe('是否需要追问以获得更好答案'),
+const draftAssessmentSchema = z.object({
+  answerRelevance: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe('当前草稿与问题的相关性，0-1'),
+  answerCompleteness: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe('当前草稿的完整性，0-1'),
+  shouldRetrieveMore: z.boolean().describe('是否值得继续检索以改善当前草稿'),
   followUpQuestion: z
     .string()
     .optional()
@@ -42,12 +52,12 @@ const evaluationSchema = z.object({
 });
 
 @Injectable()
-export class AnswerEvaluator {
-  private readonly logger = new Logger(AnswerEvaluator.name);
+export class DraftAssessmentService {
+  private readonly logger = new Logger(DraftAssessmentService.name);
   private readonly llm: ChatOpenAI;
   private readonly structuredLlm: Runnable<
     BaseLanguageModelInput,
-    z.infer<typeof evaluationSchema>
+    z.infer<typeof draftAssessmentSchema>
   >;
 
   constructor(private readonly llmService: LlmService) {
@@ -55,19 +65,19 @@ export class AnswerEvaluator {
       temperature: 0.2, // 低温度以获得稳定评估
       maxTokens: 500,
     });
-    this.structuredLlm = this.llm.withStructuredOutput(evaluationSchema, {
-      name: 'evaluate_answer',
+    this.structuredLlm = this.llm.withStructuredOutput(draftAssessmentSchema, {
+      name: 'assess_draft',
     });
   }
 
   /**
-   * 评估答案质量
+   * 评审当前草稿，决定是否值得继续检索。
    */
-  async evaluate(
+  async assessDraft(
     question: string,
     answer: GeneratedAnswer,
-  ): Promise<EvaluationResult> {
-    this.logger.log(`评估答案质量: 问题="${question.substring(0, 50)}..."`);
+  ): Promise<DraftAssessment> {
+    this.logger.log(`评审答案草稿: 问题="${question.substring(0, 50)}..."`);
 
     try {
       const validated = await this.structuredLlm.invoke([
@@ -75,11 +85,10 @@ export class AnswerEvaluator {
         new HumanMessage(this.buildEvaluationPrompt(question, answer)),
       ]);
 
-      const result: EvaluationResult = {
-        relevance: validated.relevance,
-        completeness: validated.completeness,
-        confidence: answer.retrievalConfidence,
-        needsFollowUp: validated.needsFollowUp,
+      const result: DraftAssessment = {
+        answerRelevance: validated.answerRelevance,
+        answerCompleteness: validated.answerCompleteness,
+        shouldRetrieveMore: validated.shouldRetrieveMore,
         followUpQuestion: validated.followUpQuestion,
         missingAspects: validated.missingAspects ?? [],
         followUpQueries: validated.followUpQueries ?? [],
@@ -87,27 +96,27 @@ export class AnswerEvaluator {
       };
 
       this.logger.log(
-        `评估完成: 相关性=${result.relevance}, 完整性=${result.completeness}, 需追问=${result.needsFollowUp}`,
+        `草稿评审完成: 相关性=${result.answerRelevance}, 完整性=${result.answerCompleteness}, 需继续检索=${result.shouldRetrieveMore}`,
       );
 
       return result;
     } catch (error) {
-      this.logger.error(`评估失败: ${error.message}`);
-      // 降级处理：基于简单规则评估
-      return this.simpleEvaluate(question, answer);
+      this.logger.error(`草稿评审失败: ${error.message}`);
+      // 降级处理：基于简单规则评审
+      return this.simpleAssessDraft(question, answer);
     }
   }
 
   /**
-   * 判断是否需要追问
+   * 判断当前草稿是否值得继续检索。
    */
-  shouldFollowUp(evaluation: EvaluationResult): boolean {
-    // 相关性或完整性低于阈值时需要追问
+  shouldRetrieveMore(assessment: DraftAssessment): boolean {
+    // 相关性或完整性低于阈值时值得继续检索。
     const threshold = 0.7;
     return (
-      evaluation.needsFollowUp ||
-      evaluation.relevance < threshold ||
-      evaluation.completeness < threshold
+      assessment.shouldRetrieveMore ||
+      assessment.answerRelevance < threshold ||
+      assessment.answerCompleteness < threshold
     );
   }
 
@@ -115,12 +124,12 @@ export class AnswerEvaluator {
    * 获取系统 prompt
    */
   private getSystemPrompt(): string {
-    return `你是一个答案质量评估专家。你的任务是评估 AI 生成的答案质量。
+    return `你是一个草稿评审助手。你的任务是判断当前 RAG 草稿是否值得继续检索补充。
 
 ## 评估维度
-1. **相关性**（0-1）：答案是否直接回答了用户问题
-2. **完整性**（0-1）：答案是否完整，是否遗漏关键信息
-3. **是否需要追问**：当前答案是否足够好，或者需要追问以获得更好答案
+1. **相关性**（0-1）：草稿是否直接回答了用户问题，写入 answerRelevance
+2. **完整性**（0-1）：草稿是否遗漏关键信息，写入 answerCompleteness
+3. **是否继续检索**：当前草稿是否值得继续检索以获得更好答案，写入 shouldRetrieveMore
 
 ## 评估标准
 - 高分（0.8-1.0）：答案准确、完整、直接回答问题
@@ -158,27 +167,25 @@ ${answer.answer}
 
 ## 引用信息
 ${citationsText}
-检索匹配度：${answer.retrievalConfidence}
 
-请评估这个答案的质量。`;
+请评审这个草稿。`;
   }
 
   /**
-   * 简单评估（降级方案）
+   * 简单草稿评审（降级方案）
    */
-  private simpleEvaluate(
+  private simpleAssessDraft(
     question: string,
     answer: GeneratedAnswer,
-  ): EvaluationResult {
+  ): DraftAssessment {
     const hasCitations = answer.citations.length > 0;
     const answerLength = answer.answer.length;
     const isLongEnough = answerLength > 50;
 
     return {
-      relevance: hasCitations ? 0.7 : 0.5,
-      completeness: isLongEnough ? 0.6 : 0.4,
-      confidence: answer.retrievalConfidence,
-      needsFollowUp: !hasCitations || !isLongEnough,
+      answerRelevance: hasCitations ? 0.7 : 0.5,
+      answerCompleteness: isLongEnough ? 0.6 : 0.4,
+      shouldRetrieveMore: !hasCitations || !isLongEnough,
       followUpQuestion: !hasCitations ? '能否提供更多信息来源？' : undefined,
       missingAspects: !hasCitations ? [question] : [],
       followUpQueries: !hasCitations ? [question] : [],
