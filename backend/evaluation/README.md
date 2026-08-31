@@ -21,6 +21,75 @@ pnpm eval:dataset -- --dataset evaluation/dataset.example.jsonl --split smoke --
 pnpm eval:dataset -- --dataset evaluation/dataset.jsonl --split test --gate 0.90
 ```
 
+## 用 Ragas 从本地文件生成数据集
+
+`generate_ragas_dataset.py` 是一个独立的 Python 脚本，用于把本地 Markdown/
+文本文件合成为 Ragas 测试集；它不会安装 Python 依赖到 Node.js 项目中。先创建虚拟环境：
+
+```bash
+cd backend
+python3 -m venv .venv-ragas
+source .venv-ragas/bin/activate
+pip install -r evaluation/requirements-ragas.txt
+```
+
+当前请使用该 requirements 文件中的固定依赖组合。`ragas==0.4.3` 与新版
+`langchain-community` 存在上游导入缺陷，会在加载 Ragas 前报
+`chat_models.vertexai` 找不到；不要单独升级 Ragas 或 LangChain 包。
+
+脚本会自动读取 `backend/.env`。至少配置生成模型的 `OPENAI_API_KEY`；以下变量将
+让生成 LLM 与 Embedding 模型完全分开：
+
+```dotenv
+OPENAI_BASE_URL=https://llm.example.com/v1
+OPENAI_MODEL_NAME=gpt-4.1-mini
+OPENAI_API_KEY=...
+
+EMBEDDING_BASE_URL=https://embedding.example.com/v1
+EMBEDDING_API_KEY=...
+EMBEDDING_MODEL=text-embedding-3-small
+```
+
+本地 OpenAI 兼容的 BGE Embedding 服务（例如 `BAAI/bge-m3`）通常只接受文本
+字符串作为 `/embeddings` 的 `input`。脚本已禁用 LangChain 默认的 token-ID
+预分词，避免这类服务返回 HTTP 422；请确保单个源文件/文本块不超过你的 Embedding
+服务允许的输入长度。
+
+以下命令会产生两份数据：第一份保留 `user_input`、`reference` 与
+`reference_contexts`，用于 Ragas 的 `answer_relevancy`、`faithfulness`、
+`context_recall`、`context_precision`；第二份适配本仓库的 Node 评估运行器：
+
+```bash
+python evaluation/generate_ragas_dataset.py \
+  --input ../test-files/parenting-ecommerce \
+  --size 30 \
+  --output evaluation/generated/parenting-ragas.jsonl \
+  --runner-output evaluation/generated/parenting-runner.jsonl
+
+pnpm eval:validate evaluation/generated/parenting-runner.jsonl
+```
+
+LLM 与 Embedding 可单独选模型、OpenAI 兼容地址及密钥。上面的 `.env` 会让
+生成问题/答案使用一个模型服务，让知识图谱向量化使用另一个服务。若要临时覆盖 `.env`，
+仍可传命令行参数：
+
+```bash
+python evaluation/generate_ragas_dataset.py \
+  --input ../test-files/parenting-ecommerce \
+  --size 30 \
+  --output evaluation/generated/parenting-ragas.jsonl \
+  --model gpt-4.1-mini \
+  --llm-base-url https://llm.example.com/v1 \
+  --embedding-model text-embedding-3-small \
+  --embedding-base-url https://embedding.example.com/v1
+```
+
+未传这些参数时，分别使用上列 `.env` 的值；当未设置 `EMBEDDING_API_KEY` 时，
+Embedding 默认复用 `OPENAI_API_KEY`。
+
+脚本目前递归支持 `.md`、`.markdown` 与 `.txt`。生成内容应先经业务人工审核，
+再作为 `test` 集使用；合成集适合补齐覆盖面，不能替代真实用户问题。
+
 ## Upload a dataset to Langfuse
 
 Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and (when not using the EU
