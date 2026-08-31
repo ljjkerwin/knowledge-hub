@@ -103,6 +103,14 @@ function validateRow(row, lineNumber, errors) {
     at('expected.minGroundedness must be a number between 0 and 1');
   }
   if (
+    row.expected?.minAnswerRelevancy !== undefined &&
+    (!Number.isFinite(row.expected.minAnswerRelevancy) ||
+      row.expected.minAnswerRelevancy < 0 ||
+      row.expected.minAnswerRelevancy > 1)
+  ) {
+    at('expected.minAnswerRelevancy must be a number between 0 and 1');
+  }
+  if (
     row.expected?.maxIterations !== undefined &&
     (!Number.isInteger(row.expected.maxIterations) ||
       row.expected.maxIterations < 1)

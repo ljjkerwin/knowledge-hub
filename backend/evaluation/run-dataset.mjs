@@ -221,7 +221,7 @@ export async function evaluateCase(
     });
   }
 
-  if (judge && (result.route === 'rag' || expected.noAnswer === true)) {
+  if (judge) {
     const judgment = await judge.evaluate({
       question: testCase.input.question,
       answer: result.answer,
@@ -235,6 +235,11 @@ export async function evaluateCase(
         unsupportedClaims: judgment.unsupportedClaims,
         reasoning: judgment.reasoning,
       },
+    );
+    checks.answerRelevancy = judgeScore(
+      judgment.answerRelevancy,
+      expected.minAnswerRelevancy,
+      { reasoning: judgment.reasoning },
     );
     if (expected.noAnswer === true) {
       checks.noAnswerPhrase = { ...checks.noAnswerRecognition, gate: false };
@@ -311,6 +316,7 @@ export function summarize(caseResults) {
       document_recall_at_k: metric('documentRecallAtK'),
       required_fact_recall: metric('requiredFacts'),
       groundedness: metric('groundedness'),
+      answer_relevancy: metric('answerRelevancy'),
       no_answer_accuracy:
         noAnswerValues.length > 0 ? mean(noAnswerValues) : null,
       time_to_first_text_ms: timeToFirstTextMs,
@@ -319,6 +325,7 @@ export function summarize(caseResults) {
       document_recall_at_k: metricSamples('documentRecallAtK'),
       required_fact_recall: metricSamples('requiredFacts'),
       groundedness: metricSamples('groundedness'),
+      answer_relevancy: metricSamples('answerRelevancy'),
       no_answer_accuracy: noAnswerValues.length,
     },
     diagnostics: {

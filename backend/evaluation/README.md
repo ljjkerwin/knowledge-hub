@@ -21,6 +21,38 @@ pnpm eval:dataset -- --dataset evaluation/dataset.example.jsonl --split smoke --
 pnpm eval:dataset -- --dataset evaluation/dataset.jsonl --split test --gate 0.90
 ```
 
+## Upload a dataset to Langfuse
+
+Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and (when not using the EU
+cloud endpoint) `LANGFUSE_BASE_URL` in `.env`, then upload the source cases:
+
+```bash
+pnpm eval:dataset:upload -- --dataset evaluation/dataset.smoke.jsonl --langfuse-dataset rag-smoke
+```
+
+The command creates the Langfuse dataset when necessary and upserts each case
+using a stable ID. Its `input` becomes the Langfuse dataset input, the complete
+`expected` object becomes `expectedOutput`, and the case ID is kept in metadata.
+Use `--dry-run` to validate the JSONL and inspect the target without calling
+Langfuse.
+
+## Run a Langfuse Dataset experiment
+
+After uploading a dataset, run the same Agent and deterministic checks against
+the hosted cases. Langfuse records one trace and the individual checks as scores
+for every case, plus average scores on the Dataset Run.
+
+```bash
+pnpm eval:dataset:langfuse -- \
+  --langfuse-dataset rag-smoke \
+  --split smoke \
+  --run-name local-smoke
+```
+
+`--case <sourceCaseId>`, `--retrieval-k <number>`, `--judge`, and
+`--max-concurrency <number>` are also supported. The default concurrency is 1
+to avoid distorting local-model and Elasticsearch measurements.
+
 runner 使用独立的 `EvaluationModule`，不会连接 HTTP、Postgres、MongoDB、消息队列或
 对象存储。报告写入 `evaluation/results/`。`--gate` 接受 0 到 1 的最低案例通过率，低于门槛时
 进程以状态码 2 退出。
@@ -29,7 +61,7 @@ runner 使用独立的 `EvaluationModule`，不会连接 HTTP、Postgres、Mongo
 与 `--split` 组合时，序号在该 split 的筛选结果中计算；两者不可同时使用。
 
 `summary.metrics` 只保留蛇形命名的核心指标：`request_success_rate`、`route_accuracy`、
-`document_recall_at_k`、`required_fact_recall`、`groundedness`、`no_answer_accuracy` 和
+`document_recall_at_k`、`required_fact_recall`、`groundedness`、`answer_relevancy`、`no_answer_accuracy` 和
 `time_to_first_text_ms`。各条件指标的样本量在 `summary.metric_samples` 中；没有无答案样本时
 `no_answer_accuracy` 为 `null`。引用精度、禁用内容等附加检查放在 `summary.diagnostics`。
 `document_recall_at_k` 使用最终检索结果的前 K 个引用文档计算；K 默认取 `RAG_TOP_K`（默认 5），
@@ -39,9 +71,10 @@ runner 使用独立的 `EvaluationModule`，不会连接 HTTP、Postgres、Mongo
 `evaluation/results/run-….log`），同时继续输出到终端。用
 `--log-file evaluation/results/smoke.log` 可指定日志文件位置。
 
-追加 `--judge`（或设置 `EVAL_LLM_JUDGE_ENABLED=true`）会在每个 RAG 案例结束后额外调用一次
-LLM Judge。它使用本次实际传给生成器的完整召回上下文，报告 `groundedness`；无答案案例还会用
-语义判定覆盖固定短语规则。Judge 失败时运行失败，避免静默漏评。可通过
+追加 `--judge`（或设置 `EVAL_LLM_JUDGE_ENABLED=true`）会在每个评测案例结束后额外调用一次
+LLM Judge。它对每个案例报告 `answer_relevancy`，并使用本次实际传给生成器的完整召回上下文报告
+`groundedness`；无答案案例还会用语义判定覆盖固定短语规则。数据集可用
+`expected.minAnswerRelevancy`（0 到 1）将答案相关性设为案例门禁。Judge 失败时运行失败，避免静默漏评。可通过
 `EVAL_JUDGE_MAX_CONTEXT_CHARS`（默认 16000）限制发送给 Judge 的资料长度。
 可选的 `EVAL_JUDGE_MODEL_NAME` 可指定与生成模型不同的 Judge 模型；未设置时复用主 LLM 模型。
 
