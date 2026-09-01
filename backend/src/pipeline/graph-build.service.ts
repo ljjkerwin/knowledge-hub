@@ -3,6 +3,7 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import neo4j, { Driver, Session } from 'neo4j-driver';
@@ -233,6 +234,76 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
     } finally {
       await session.close();
     }
+  }
+
+  /**
+   * 返回用于可视化的实体子图。节点按被文档块提及次数排序，避免一次向浏览器传递整张图。
+   */
+  async getVisualization(limit = 60, documentId?: string) {
+    if (!this.driver) {
+      throw new ServiceUnavailableException('知识图谱服务暂不可用');
+    }
+
+    const safeLimit = Math.min(Math.max(Math.floor(limit) || 60, 1), 150);
+    const session = this.driver.session();
+    try {
+      const nodeResult = await session.run(
+        `
+        MATCH (e:KnowledgeEntity)<-[:MENTIONS]-(c:DocumentChunk)<-[:HAS_CHUNK]-(d:KnowledgeDocument)
+        WHERE $documentId IS NULL OR d.id = $documentId
+        WITH e, count(DISTINCT c) AS mentions,
+             collect(DISTINCT { id: d.id, title: d.title }) AS documents
+        RETURN e.name AS id, e.name AS name, e.type AS type,
+               e.description AS description, e.aliases AS aliases,
+               mentions, documents
+        ORDER BY mentions DESC, name ASC
+        LIMIT $limit
+        `,
+        { limit: neo4j.int(safeLimit), documentId: documentId ?? null },
+      );
+      const nodes = nodeResult.records.map((record) => ({
+        id: String(record.get('id')),
+        name: String(record.get('name')),
+        type: String(record.get('type') ?? 'CONCEPT'),
+        description: String(record.get('description') ?? ''),
+        aliases: (record.get('aliases') ?? []) as string[],
+        mentions: this.toNumber(record.get('mentions')),
+        documents: (record.get('documents') ?? []) as Array<{
+          id: string;
+          title: string;
+        }>,
+      }));
+      const names = nodes.map((node) => node.name);
+      if (!names.length) return { nodes, edges: [] };
+
+      const edgeResult = await session.run(
+        `
+        MATCH (source:KnowledgeEntity)-[r:RELATED_TO]->(target:KnowledgeEntity)
+        WHERE source.name IN $names AND target.name IN $names
+        RETURN source.name AS source, target.name AS target,
+               r.relation AS relation, r.weight AS weight
+        ORDER BY source, target
+        `,
+        { names },
+      );
+      const edges = edgeResult.records.map((record) => ({
+        source: String(record.get('source')),
+        target: String(record.get('target')),
+        relation: String(record.get('relation') ?? 'RELATED_TO'),
+        weight: this.toNumber(record.get('weight')),
+      }));
+      return { nodes, edges };
+    } finally {
+      await session.close();
+    }
+  }
+
+  private toNumber(value: unknown): number {
+    return typeof value === 'number'
+      ? value
+      : typeof value === 'object' && value !== null && 'toNumber' in value
+        ? Number((value as { toNumber: () => number }).toNumber())
+        : Number(value ?? 0);
   }
 
   /**

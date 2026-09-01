@@ -15,6 +15,7 @@ import {
   MessageSquare,
   FileText,
   ClipboardCheck,
+  Network,
   Brain,
   LogOut,
   User,
@@ -36,6 +37,11 @@ const menuItems = [
     title: '审核工作台',
     href: '/documents/reviews',
     icon: ClipboardCheck,
+  },
+  {
+    title: '知识图谱',
+    href: '/knowledge-graph',
+    icon: Network,
   },
 ];
 

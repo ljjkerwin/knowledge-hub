@@ -12,6 +12,7 @@ import { PipelineOrchestrator } from './pipeline.orchestrator';
 import { SearchIndexService } from './search-index.service';
 import { VectorIndexService } from './vector-index.service';
 import { LlmModule } from '../llm/llm.module';
+import { KnowledgeGraphController } from './knowledge-graph.controller';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { LlmModule } from '../llm/llm.module';
     GraphBuildService,
     PipelineOrchestrator,
   ],
+  controllers: [KnowledgeGraphController],
   exports: [
     PipelineOrchestrator,
     VectorIndexService,

@@ -17,6 +17,28 @@ export interface PaginatedResponse<T> {
   pageSize: number;
 }
 
+export interface KnowledgeGraphNode {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  aliases: string[];
+  mentions: number;
+  documents: Array<{ id: string; title: string }>;
+}
+
+export interface KnowledgeGraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+  weight: number;
+}
+
+export interface KnowledgeGraph {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+}
+
 export type DocumentStatus = 0 | 1 | 2 | 3;
 
 export interface KnowledgeDocument {
