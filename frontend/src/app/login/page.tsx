@@ -1,24 +1,38 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { useAuthStore } from '@/stores/auth.store';
 import { Brain, Loader2 } from 'lucide-react';
 
-function getReturnPath() {
-  if (typeof window === 'undefined') return '/chat';
-  const next = new URLSearchParams(window.location.search).get('next');
+function isSafeInternalPath(path: string | null): path is string {
+  return Boolean(path?.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\'));
+}
 
+function getReturnPath(next: string | null) {
   // 只允许站内绝对路径，避免 next 参数被用作开放重定向。
-  return next?.startsWith('/') && !next.startsWith('//') ? next : '/chat';
+  return isSafeInternalPath(next) ? next : '/chat';
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, isAuthenticated, isLoading, loadFromStorage } = useAuthStore();
+  const next = searchParams.get('next');
+  const returnPath = getReturnPath(next);
+  const hasNext = isSafeInternalPath(next);
+  const redirectStartedRef = useRef(false);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -29,8 +43,11 @@ export default function LoginPage() {
   }, [loadFromStorage]);
 
   useEffect(() => {
-    if (isAuthenticated) router.replace(getReturnPath());
-  }, [isAuthenticated, router]);
+    if (isAuthenticated && hasNext && !redirectStartedRef.current) {
+      redirectStartedRef.current = true;
+      router.replace(returnPath);
+    }
+  }, [hasNext, isAuthenticated, returnPath, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,14 +60,29 @@ export default function LoginPage() {
 
     try {
       await login(username, password);
-      router.replace(getReturnPath());
+      if (hasNext) {
+        // 提交成功后立即跳转，不能只依赖状态 effect，否则在状态恢复的
+        // 时序下可能停留在登录页。
+        redirectStartedRef.current = true;
+        router.replace(returnPath);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请重试');
     }
   };
 
   if (isAuthenticated) {
-    return null;
+    return (
+      <div className="flex items-center justify-center h-full bg-muted/30">
+        <Card className="w-full max-w-sm p-8 text-center">
+          <Brain className="mx-auto mb-3 h-10 w-10 text-primary" />
+          <h1 className="text-xl font-semibold">已登录</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {hasNext ? '正在跳转到指定页面...' : '你当前已经处于登录状态。'}
+          </p>
+        </Card>
+      </div>
+    );
   }
 
   return (

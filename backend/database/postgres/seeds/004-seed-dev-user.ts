@@ -15,7 +15,7 @@ const DEV_USER = {
   id: '10001',
   username: 'dev',
   email: 'dev@knowledge-hub.local',
-  password: 'ljjkerwin',
+  password: 'haveagoodday.666',
   nickname: '开发者',
 };
 
@@ -24,17 +24,16 @@ async function main() {
   const connection = await connectPostgresDatabase(databaseName);
 
   try {
-    const exists = await connection.query(
-      'SELECT 1 FROM kh_user WHERE id = $1 OR username = $2',
-      [DEV_USER.id, DEV_USER.username],
+    const passwordHash = await hash(DEV_USER.password, 10);
+    const updated = await connection.query(
+      'UPDATE kh_user SET password_hash = $1 WHERE username = $2',
+      [passwordHash, DEV_USER.username],
     );
 
-    if (exists.rowCount && exists.rowCount > 0) {
-      console.log(`开发用户已存在：${DEV_USER.username}（id=${DEV_USER.id}）`);
+    if (updated.rowCount && updated.rowCount > 0) {
+      console.log(`开发用户密码已更新：${DEV_USER.username}`);
       return;
     }
-
-    const passwordHash = await hash(DEV_USER.password, 10);
 
     await connection.query(
       `INSERT INTO kh_user (id, username, email, password_hash, nickname, status, role)
@@ -48,7 +47,7 @@ async function main() {
       ],
     );
 
-    console.log(`开发用户创建成功：${DEV_USER.username}（id=${DEV_USER.id}，密码=${DEV_USER.password}）`);
+    console.log(`开发用户创建成功：${DEV_USER.username}（id=${DEV_USER.id}）`);
   } finally {
     await connection.end();
   }

@@ -14,6 +14,15 @@ function removeCookie(name: string) {
   document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
 }
 
+function getCookie(name: string): string | null {
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split('; ')
+    .find((item) => item.startsWith(prefix));
+
+  return cookie ? cookie.slice(prefix.length) : null;
+}
+
 interface AuthState {
   user: User | null;
   token: string | null;
@@ -56,9 +65,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const token = localStorage.getItem(TOKEN_KEY);
       const userStr = localStorage.getItem(USER_KEY);
-      if (token && userStr) {
+      // 页面路由由 Cookie 保护；仅凭 localStorage 不能视为已登录，
+      // 否则 Cookie 失效时会在登录页和受保护页之间循环跳转。
+      if (token && userStr && getCookie(TOKEN_KEY) === token) {
         const user = JSON.parse(userStr) as User;
         set({ user, token, isAuthenticated: true });
+      } else {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        set({ user: null, token: null, isAuthenticated: false });
       }
     } catch {
       localStorage.removeItem(TOKEN_KEY);
