@@ -7,6 +7,12 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export interface AboutInfo {
+  title: string;
+  description: string;
+  highlights: string[];
+}
+
 /**
  * 分页响应
  */

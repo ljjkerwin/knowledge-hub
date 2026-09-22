@@ -19,4 +19,14 @@ describe('AppController', () => {
       expect(appController.getHello()).toBe('Hello World!');
     });
   });
+
+  describe('about', () => {
+    it('should return the product introduction', () => {
+      expect(appController.getAbout()).toEqual({
+        title: '关于 Agentic RAG',
+        description: expect.any(String),
+        highlights: expect.arrayContaining([expect.any(String)]),
+      });
+    });
+  });
 });

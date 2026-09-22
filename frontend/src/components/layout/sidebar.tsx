@@ -16,6 +16,7 @@ import {
   FileText,
   ClipboardCheck,
   Network,
+  Info,
   Brain,
   LogOut,
   User,
@@ -43,6 +44,11 @@ const menuItems = [
     href: '/documents/reviews',
     icon: ClipboardCheck,
   },
+  // {
+  //   title: '关于我们',
+  //   href: '/about',
+  //   icon: Info,
+  // },
 ];
 
 export function Sidebar() {
