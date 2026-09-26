@@ -43,6 +43,25 @@ LANGFUSE_TRACING_ENABLED=true
 
 Set it to `false` (or remove it) to disable reporting again.
 
+## RBAC authorization cache
+
+JWT only contains the user ID. Protected requests resolve the current authorization
+snapshot through process memory (L1), Redis (L2), then PostgreSQL. Redis Pub/Sub
+invalidates each instance's L1 cache after a role change.
+
+```bash
+# Defaults shown below
+AUTHZ_CACHE_ENABLED=true
+AUTHZ_L1_TTL_MS=60000
+AUTHZ_L2_TTL_SECONDS=600
+AUTHZ_CACHE_KEY_PREFIX=kh:authz:
+AUTHZ_INVALIDATE_CHANNEL=kh:authz:invalidate
+```
+
+Call `UserService.invalidateAuthorization(userId)` after changing a user's role,
+status, or authorization version. It deletes the L2 entry and broadcasts L1
+invalidation to every running instance.
+
 ## Agent evaluation
 
 See [docs/agent-evaluation-system.md](docs/agent-evaluation-system.md) for the

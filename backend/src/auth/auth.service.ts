@@ -46,7 +46,9 @@ export class AuthService {
   async login(username: string, password: string) {
     const user = await this.validateUser(username, password);
 
-    const payload = { sub: user.id, username: user.username, roles: user.roles };
+    // JWT 仅承载身份；角色从服务端授权快照读取，权限变更无需等待 JWT 过期。
+    const payload = { sub: user.id };
+    console.log(payload)
     const token = this.jwtService.sign(payload);
 
     return {

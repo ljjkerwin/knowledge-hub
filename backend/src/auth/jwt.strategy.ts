@@ -3,12 +3,9 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { UserService } from '../user/user.service';
-import { RoleCode } from '../user/entities/role.entity';
 
 export interface JwtPayload {
   sub: string;
-  username: string;
-  roles?: RoleCode[];
 }
 
 @Injectable()
@@ -25,11 +22,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
-    const user = await this.userService.findById(payload.sub);
+    const user = await this.userService.findAuthorizationById(payload.sub);
     if (!user) {
       throw new UnauthorizedException('用户不存在');
     }
-    // 每次请求从数据库读取，禁用或撤销角色无需等待 JWT 过期。
+    // 通过 L1 → Redis → PostgreSQL 取得最新授权快照。
     return { id: user.id, username: user.username, roles: user.roles };
   }
 }
