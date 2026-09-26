@@ -217,7 +217,7 @@ export class DocumentService {
    * 私有文档只允许作者/创建者和管理员读取；公开文档仍必须已经发布。
    * 当前项目没有团队成员关系表，因此不能把 teamId 误当作授权依据。
    */
-  async findOneForReader(id: string, user: { id: string; role: number }) {
+  async findOneForReader(id: string, user: { id: string; roles: string[] }) {
     const doc = await this.em.findOne(DocumentEntity, {
       where: { id, deleted: false },
     });
@@ -225,7 +225,7 @@ export class DocumentService {
       throw new NotFoundException(`Document ${id} not found`);
     }
 
-    const isAdmin = user.role === 1;
+    const isAdmin = user.roles.includes('ROLE_ADMIN');
     const isOwner = doc.authorId === user.id || doc.createBy === user.id;
     const isPublishedPublic =
       doc.isPublic && doc.status === DocumentStatus.Published;

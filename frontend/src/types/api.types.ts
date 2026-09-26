@@ -156,7 +156,7 @@ export interface User {
   email: string;
   nickname?: string;
   avatar?: string;
-  role: number;
+  roles: string[];
 }
 
 /**

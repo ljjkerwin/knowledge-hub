@@ -24,7 +24,7 @@ export class QueryReviewTasksDto {
 
 /**
  * 审核通过 / 驳回请求体
- * reviewerId、reviewerName 暂由前端传入；接入鉴权后改从登录用户取
+ * 审核人身份由服务端从 JWT 中取得，客户端不能指定。
  */
 export class ReviewDecisionDto {
   /** 审核意见（驳回时必填） */
@@ -32,11 +32,4 @@ export class ReviewDecisionDto {
   @IsString()
   reviewComment?: string;
 
-  @IsOptional()
-  @IsString()
-  reviewerId?: string;
-
-  @IsOptional()
-  @IsString()
-  reviewerName?: string;
 }

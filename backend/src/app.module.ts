@@ -14,6 +14,8 @@ import { RagModule } from './rag/rag.module';
 import { ConversationEntity } from './rag/entities/conversation.entity';
 import { MessageEntity } from './rag/entities/message.entity';
 import { UserEntity } from './user/entities/user.entity';
+import { RoleEntity } from './user/entities/role.entity';
+import { UserRoleEntity } from './user/entities/user-role.entity';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 
@@ -42,6 +44,8 @@ import { UserModule } from './user/user.module';
           MessageEntity,
           ConversationEntity,
           UserEntity,
+          RoleEntity,
+          UserRoleEntity,
         ],
         synchronize: false,
       }),

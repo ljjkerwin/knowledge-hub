@@ -8,6 +8,7 @@ import {
   DocumentContentSchema,
 } from './schemas/document-content.schema';
 import { FileParserService } from './parser/file-parser.service';
+import { AuthModule } from '../auth/auth.module';
 
 /**
  * 文档模块
@@ -16,6 +17,7 @@ import { FileParserService } from './parser/file-parser.service';
  */
 @Module({
   imports: [
+    AuthModule,
     MongooseModule.forFeature([
       { name: DocumentContent.name, schema: DocumentContentSchema },
     ]),

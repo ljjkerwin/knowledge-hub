@@ -55,7 +55,7 @@ function DocumentDetailPageContent({
   const canManage = (document: KnowledgeDocument) =>
     Boolean(
       user &&
-      (user.role === 1 ||
+      (user.roles.includes("ROLE_ADMIN") ||
         document.authorId === user.id ||
         document.createBy === user.id),
     );
@@ -67,7 +67,7 @@ function DocumentDetailPageContent({
     const manageable = Boolean(
       doc &&
       user &&
-      (user.role === 1 || doc.authorId === user.id || doc.createBy === user.id),
+      (user.roles.includes("ROLE_ADMIN") || doc.authorId === user.id || doc.createBy === user.id),
     );
     if (!doc || !manageable) return;
     let cancelled = false;

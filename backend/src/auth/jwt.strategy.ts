@@ -3,10 +3,12 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { UserService } from '../user/user.service';
+import { RoleCode } from '../user/entities/role.entity';
 
 export interface JwtPayload {
   sub: string;
   username: string;
+  roles?: RoleCode[];
 }
 
 @Injectable()
@@ -27,6 +29,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException('用户不存在');
     }
-    return { id: user.id, username: user.username, role: user.role };
+    // 每次请求从数据库读取，禁用或撤销角色无需等待 JWT 过期。
+    return { id: user.id, username: user.username, roles: user.roles };
   }
 }

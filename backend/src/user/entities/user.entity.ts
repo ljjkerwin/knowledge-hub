@@ -13,12 +13,6 @@ export enum UserStatus {
   Disabled = 1,
 }
 
-/** 用户角色：0 普通用户 / 1 管理员 */
-export enum UserRole {
-  User = 0,
-  Admin = 1,
-}
-
 /** 用户（PostgreSQL kh_user） */
 @Entity('kh_user')
 export class UserEntity {
@@ -53,10 +47,6 @@ export class UserEntity {
   /** 状态：0 正常 / 1 禁用 */
   @Column({ type: 'smallint', default: UserStatus.Active })
   status: UserStatus;
-
-  /** 角色：0 普通用户 / 1 管理员 */
-  @Column({ type: 'smallint', default: UserRole.User })
-  role: UserRole;
 
   /** 最后登录时间 */
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })

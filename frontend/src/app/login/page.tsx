@@ -14,7 +14,7 @@ function isSafeInternalPath(path: string | null): path is string {
 
 function getReturnPath(next: string | null) {
   // 只允许站内绝对路径，避免 next 参数被用作开放重定向。
-  return isSafeInternalPath(next) ? next : '/chat';
+  return isSafeInternalPath(next) ? next : '/';
 }
 
 export default function LoginPage() {
@@ -43,7 +43,7 @@ function LoginPageContent() {
   }, [loadFromStorage]);
 
   useEffect(() => {
-    if (isAuthenticated && hasNext && !redirectStartedRef.current) {
+    if (isAuthenticated && !redirectStartedRef.current) {
       redirectStartedRef.current = true;
       router.replace(returnPath);
     }
@@ -60,12 +60,10 @@ function LoginPageContent() {
 
     try {
       await login(username, password);
-      if (hasNext) {
-        // 提交成功后立即跳转，不能只依赖状态 effect，否则在状态恢复的
-        // 时序下可能停留在登录页。
-        redirectStartedRef.current = true;
-        router.replace(returnPath);
-      }
+      // 提交成功后立即跳转，不能只依赖状态 effect，否则在状态恢复的
+      // 时序下可能停留在登录页。没有 next 时回到首页。
+      redirectStartedRef.current = true;
+      router.replace(returnPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请重试');
     }
@@ -78,7 +76,7 @@ function LoginPageContent() {
           <Brain className="mx-auto mb-3 h-10 w-10 text-primary" />
           <h1 className="text-xl font-semibold">已登录</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {hasNext ? '正在跳转到指定页面...' : '你当前已经处于登录状态。'}
+            {hasNext ? '正在跳转到指定页面...' : '正在跳转到首页...'}
           </p>
         </Card>
       </div>
