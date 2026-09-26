@@ -53,6 +53,8 @@ invalidates each instance's L1 cache after a role change.
 # Defaults shown below
 AUTHZ_CACHE_ENABLED=true
 AUTHZ_L1_TTL_MS=60000
+AUTHZ_L1_MAX_ENTRIES=100000
+AUTHZ_L1_CLEANUP_INTERVAL_MS=60000
 AUTHZ_L2_TTL_SECONDS=600
 AUTHZ_CACHE_KEY_PREFIX=kh:authz:
 AUTHZ_INVALIDATE_CHANNEL=kh:authz:invalidate

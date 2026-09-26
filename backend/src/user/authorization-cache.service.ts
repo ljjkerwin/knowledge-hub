@@ -26,22 +26,33 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
   private readonly enabled: boolean;
   private readonly l1TtlMs: number;
   private readonly l2TtlSeconds: number;
+  private readonly l1MaxEntries: number;
+  private readonly l1CleanupIntervalMs: number;
   private readonly keyPrefix: string;
   private readonly invalidateChannel: string;
   private client: Redis | null = null;
   private subscriber: Redis | null = null;
   private redisReady = false;
   private redisUnavailableLogged = false;
+  private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly config: ConfigService) {
     this.enabled = config.get<string>('AUTHZ_CACHE_ENABLED', 'true') !== 'false';
-    this.l1TtlMs = Math.max(
-      1_000,
-      Number(config.get<string>('AUTHZ_L1_TTL_MS', '60000')),
-    );
-    this.l2TtlSeconds = Math.max(
+    this.l1TtlMs = this.positiveNumber('AUTHZ_L1_TTL_MS', 60_000, 1_000);
+    this.l2TtlSeconds = this.positiveNumber(
+      'AUTHZ_L2_TTL_SECONDS',
+      600,
       1,
-      Number(config.get<string>('AUTHZ_L2_TTL_SECONDS', '600')),
+    );
+    this.l1MaxEntries = this.positiveNumber(
+      'AUTHZ_L1_MAX_ENTRIES',
+      100_000,
+      1,
+    );
+    this.l1CleanupIntervalMs = this.positiveNumber(
+      'AUTHZ_L1_CLEANUP_INTERVAL_MS',
+      60_000,
+      1_000,
     );
     this.keyPrefix = config.get<string>('AUTHZ_CACHE_KEY_PREFIX', 'kh:authz:');
     this.invalidateChannel = config.get<string>(
@@ -51,6 +62,13 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
   }
 
   async onModuleInit() {
+    this.cleanupTimer = setInterval(
+      () => this.removeExpiredL1Entries(),
+      this.l1CleanupIntervalMs,
+    );
+    // 不应因清扫定时器阻止 Node 进程优雅退出。
+    this.cleanupTimer.unref();
+
     if (!this.enabled) {
       this.logger.log('授权缓存已禁用（AUTHZ_CACHE_ENABLED=false）');
       return;
@@ -92,6 +110,10 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
   }
 
   async onModuleDestroy() {
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    this.cleanupTimer = null;
+    this.l1.clear();
+    this.inFlight.clear();
     await this.closeRedisClients();
   }
 
@@ -100,7 +122,12 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
     loader: () => Promise<AuthorizationSnapshot | null>,
   ): Promise<AuthorizationSnapshot | null> {
     const l1Hit = this.l1.get(userId);
-    if (l1Hit && l1Hit.expiresAt > Date.now()) return l1Hit.value;
+    if (l1Hit && l1Hit.expiresAt > Date.now()) {
+      // Map 的插入顺序即 LRU 顺序；命中时移至队尾。
+      this.l1.delete(userId);
+      this.l1.set(userId, l1Hit);
+      return l1Hit.value;
+    }
     this.l1.delete(userId);
 
     const pending = this.inFlight.get(userId);
@@ -167,11 +194,33 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
   }
 
   private putL1(snapshot: AuthorizationSnapshot): AuthorizationSnapshot {
+    this.l1.delete(snapshot.id);
     this.l1.set(snapshot.id, {
       value: snapshot,
       expiresAt: Date.now() + this.l1TtlMs,
     });
+    this.evictL1IfNeeded();
     return snapshot;
+  }
+
+  private evictL1IfNeeded() {
+    while (this.l1.size > this.l1MaxEntries) {
+      const oldestKey = this.l1.keys().next().value;
+      if (oldestKey === undefined) return;
+      this.l1.delete(oldestKey);
+    }
+  }
+
+  private removeExpiredL1Entries() {
+    const now = Date.now();
+    for (const [userId, entry] of this.l1) {
+      if (entry.expiresAt <= now) this.l1.delete(userId);
+    }
+  }
+
+  private positiveNumber(name: string, fallback: number, minimum: number) {
+    const value = Number(this.config.get<string>(name, String(fallback)));
+    return Number.isFinite(value) && value >= minimum ? value : fallback;
   }
 
   private key(userId: string) {
