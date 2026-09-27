@@ -73,7 +73,6 @@ export class DocumentController {
 
   /** 审核待办列表（须在 @Get(':id') 之前注册，避免路由被 :id 吃掉） */
   @Get('reviews/tasks')
-  @Roles(RoleCode.Admin, RoleCode.Reviewer)
   @Permissions('document:review')
   listReviewTasks(@Query() query: QueryReviewTasksDto) {
     return this.reviewService.listTasks(query);
@@ -81,7 +80,6 @@ export class DocumentController {
 
   /** 待审核数量（导航角标等） */
   @Get('reviews/tasks/pending-count')
-  @Roles(RoleCode.Admin, RoleCode.Reviewer)
   @Permissions('document:review')
   pendingReviewCount() {
     return this.reviewService.getPendingCount();
@@ -135,7 +133,6 @@ export class DocumentController {
 
   /** 审核通过 → 文档 Published + 重建索引 */
   @Post('reviews/tasks/:taskId/approve')
-  @Roles(RoleCode.Admin, RoleCode.Reviewer)
   @Permissions('document:review')
   approveReview(
     @Param('taskId') taskId: string,
@@ -152,7 +149,6 @@ export class DocumentController {
 
   /** 审核驳回 → 文档回 Draft，作者可修改后再次 submit */
   @Post('reviews/tasks/:taskId/reject')
-  @Roles(RoleCode.Admin, RoleCode.Reviewer)
   @Permissions('document:review')
   rejectReview(
     @Param('taskId') taskId: string,
