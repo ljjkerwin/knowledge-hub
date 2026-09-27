@@ -9,7 +9,6 @@ import {
   Sse,
   Logger,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { LangfuseClient } from '@langfuse/client';
@@ -19,7 +18,6 @@ import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
 import { ChatDto, ConversationListDto } from './dto/chat.dto';
 import { AguiEventType } from './types/agui.types';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { isLangfuseTracingEnabled } from '../langfuse.config';
 
 interface AuthenticatedRequest {
@@ -29,7 +27,6 @@ interface AuthenticatedRequest {
 }
 
 @Controller('rag')
-@UseGuards(JwtAuthGuard)
 export class RagController {
   private readonly logger = new Logger(RagController.name);
   private readonly langfuse = isLangfuseTracingEnabled

@@ -11,7 +11,6 @@ import {
   Req,
   UploadedFile,
   UseInterceptors,
-  UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -22,9 +21,7 @@ import { UpdateDocumentDto } from './dto/update-document.dto';
 import { QueryDocumentDto } from './dto/query-document.dto';
 import { UploadParseDto } from './dto/upload-parse.dto';
 import { QueryReviewTasksDto, ReviewDecisionDto } from './dto/review.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
-import { RolesGuard } from '../auth/roles.guard';
 import { RoleCode } from '../user/entities/role.entity';
 
 interface AuthenticatedRequest {
@@ -37,7 +34,6 @@ interface AuthenticatedRequest {
 
 /** 文档接口 */
 @Controller('documents')
-@UseGuards(JwtAuthGuard)
 export class DocumentController {
   constructor(
     private readonly documentService: DocumentService,
@@ -74,7 +70,6 @@ export class DocumentController {
 
   /** 审核待办列表（须在 @Get(':id') 之前注册，避免路由被 :id 吃掉） */
   @Get('reviews/tasks')
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
   listReviewTasks(@Query() query: QueryReviewTasksDto) {
     return this.reviewService.listTasks(query);
@@ -82,7 +77,6 @@ export class DocumentController {
 
   /** 待审核数量（导航角标等） */
   @Get('reviews/tasks/pending-count')
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
   pendingReviewCount() {
     return this.reviewService.getPendingCount();
@@ -132,7 +126,6 @@ export class DocumentController {
 
   /** 审核通过 → 文档 Published + 重建索引 */
   @Post('reviews/tasks/:taskId/approve')
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
   approveReview(
     @Param('taskId') taskId: string,
@@ -149,7 +142,6 @@ export class DocumentController {
 
   /** 审核驳回 → 文档回 Draft，作者可修改后再次 submit */
   @Post('reviews/tasks/:taskId/reject')
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
   rejectReview(
     @Param('taskId') taskId: string,

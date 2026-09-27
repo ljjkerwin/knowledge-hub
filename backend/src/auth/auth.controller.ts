@@ -5,15 +5,14 @@ import {
   Post,
   Request,
   Response,
-  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
 import { UserService } from '../user/user.service';
 import { LoginCryptoService } from './login-crypto.service';
+import { Public } from './public.decorator';
 
 class LoginDto {
   @IsString()
@@ -34,6 +33,7 @@ export class AuthController {
   ) {}
 
   @Post('login')
+  @Public()
   async login(@Body() dto: LoginDto, @Response({ passthrough: true }) response: ExpressResponse) {
     const result = await this.authService.login(
       dto.username,
@@ -44,6 +44,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Public()
   async refresh(
     @Request() request: ExpressRequest,
     @Response({ passthrough: true }) response: ExpressResponse,
@@ -54,6 +55,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @Public()
   async logout(
     @Request() request: ExpressRequest,
     @Response({ passthrough: true }) response: ExpressResponse,
@@ -68,7 +70,6 @@ export class AuthController {
   }
 
   @Get('profile')
-  @UseGuards(JwtAuthGuard)
   async getProfile(@Request() req: { user: { id: string } }) {
     const user = await this.userService.findById(req.user.id);
     if (!user) return null;

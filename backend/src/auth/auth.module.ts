@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
@@ -9,6 +10,7 @@ import { UserModule } from '../user/user.module';
 import { LoginCryptoService } from './login-crypto.service';
 import { RolesGuard } from './roles.guard';
 import { RefreshSessionService } from './refresh-session.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Module({
   imports: [
@@ -28,10 +30,17 @@ import { RefreshSessionService } from './refresh-session.service';
   providers: [
     AuthService,
     JwtStrategy,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
     LoginCryptoService,
-    RolesGuard,
     RefreshSessionService,
   ],
-  exports: [AuthService, RolesGuard],
+  exports: [AuthService],
 })
 export class AuthModule {}

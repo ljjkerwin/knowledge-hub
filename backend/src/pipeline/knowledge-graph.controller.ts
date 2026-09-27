@@ -1,10 +1,8 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { GraphBuildService } from './graph-build.service';
 
 /** 面向前端的知识图谱只读接口。 */
 @Controller('knowledge-graph')
-@UseGuards(JwtAuthGuard)
 export class KnowledgeGraphController {
   constructor(private readonly graphBuildService: GraphBuildService) {}
 
