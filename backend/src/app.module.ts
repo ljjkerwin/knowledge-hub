@@ -20,6 +20,9 @@ import { PermissionEntity } from './user/entities/permission.entity';
 import { RolePermissionEntity } from './user/entities/role-permission.entity';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
+import { TeamModule } from './team/team.module';
+import { TeamEntity } from './team/entities/team.entity';
+import { TeamMemberEntity } from './team/entities/team-member.entity';
 
 @Module({
   imports: [
@@ -31,6 +34,7 @@ import { UserModule } from './user/user.module';
     RagModule,
     AuthModule,
     UserModule,
+    TeamModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -50,6 +54,8 @@ import { UserModule } from './user/user.module';
           UserRoleEntity,
           PermissionEntity,
           RolePermissionEntity,
+          TeamEntity,
+          TeamMemberEntity,
         ],
         synchronize: false,
       }),

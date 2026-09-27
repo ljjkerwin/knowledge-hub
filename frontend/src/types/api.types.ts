@@ -185,6 +185,35 @@ export interface RoleWithPermissions {
   permissionIds: string[];
 }
 
+export interface TeamUser {
+  id: string;
+  username: string;
+  nickname?: string | null;
+  email: string;
+}
+
+export interface TeamMember {
+  id: string;
+  userId: string;
+  username: string;
+  nickname?: string | null;
+  memberRole: 'leader' | 'member';
+}
+
+export interface TeamNode {
+  id: string;
+  teamName: string;
+  teamCode?: string | null;
+  description?: string | null;
+  leaderId?: string | null;
+  leaderName?: string | null;
+  parentId: string;
+  sort: number;
+  status: number;
+  members: TeamMember[];
+  children: TeamNode[];
+}
+
 /**
  * 登录请求
  */

@@ -18,6 +18,7 @@ import {
   Network,
   Brain,
   KeyRound,
+  Building2,
   LogOut,
   User,
 } from 'lucide-react';
@@ -43,12 +44,18 @@ const menuItems = [
     title: '审核工作台',
     href: '/documents/reviews',
     icon: ClipboardCheck,
-    roles: ['ROLE_ADMIN', 'ROLE_REVIEWER'],
+    // roles: ['ROLE_ADMIN', 'ROLE_REVIEWER'],
   },
   {
     title: '权限管理',
     href: '/permissions',
     icon: KeyRound,
+    roles: ['ROLE_ADMIN'],
+  },
+  {
+    title: '团队管理',
+    href: '/teams',
+    icon: Building2,
     roles: ['ROLE_ADMIN'],
   },
 ];
