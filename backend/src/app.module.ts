@@ -16,6 +16,8 @@ import { MessageEntity } from './rag/entities/message.entity';
 import { UserEntity } from './user/entities/user.entity';
 import { RoleEntity } from './user/entities/role.entity';
 import { UserRoleEntity } from './user/entities/user-role.entity';
+import { PermissionEntity } from './user/entities/permission.entity';
+import { RolePermissionEntity } from './user/entities/role-permission.entity';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 
@@ -46,6 +48,8 @@ import { UserModule } from './user/user.module';
           UserEntity,
           RoleEntity,
           UserRoleEntity,
+          PermissionEntity,
+          RolePermissionEntity,
         ],
         synchronize: false,
       }),

@@ -80,7 +80,8 @@ export class AuthController {
       email: user.email,
       nickname: user.nickname,
       avatar: user.avatar,
-        roles: user.roles,
+      roles: user.roles,
+      permissions: user.permissions,
     };
   }
 

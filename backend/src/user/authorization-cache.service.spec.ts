@@ -13,12 +13,14 @@ describe('AuthorizationCacheService', () => {
       id: '10001',
       username: 'dev',
       roles: [RoleCode.User],
+      permissions: [],
     });
 
     await expect(cache.get('10001', loader)).resolves.toEqual({
       id: '10001',
       username: 'dev',
       roles: [RoleCode.User],
+      permissions: [],
     });
     await cache.get('10001', loader);
     expect(loader).toHaveBeenCalledTimes(1);
@@ -35,7 +37,7 @@ describe('AuthorizationCacheService', () => {
     } as ConfigService;
     const cache = new AuthorizationCacheService(limitedConfig);
     const loader = jest.fn((id: string) =>
-      Promise.resolve({ id, username: id, roles: [RoleCode.User] }),
+      Promise.resolve({ id, username: id, roles: [RoleCode.User], permissions: [] }),
     );
 
     await cache.get('1', () => loader('1'));

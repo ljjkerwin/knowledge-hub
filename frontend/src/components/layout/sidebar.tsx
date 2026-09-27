@@ -16,8 +16,8 @@ import {
   FileText,
   ClipboardCheck,
   Network,
-  Info,
   Brain,
+  KeyRound,
   LogOut,
   User,
 } from 'lucide-react';
@@ -43,12 +43,14 @@ const menuItems = [
     title: '审核工作台',
     href: '/documents/reviews',
     icon: ClipboardCheck,
+    roles: ['ROLE_ADMIN', 'ROLE_REVIEWER'],
   },
-  // {
-  //   title: '关于我们',
-  //   href: '/about',
-  //   icon: Info,
-  // },
+  {
+    title: '权限管理',
+    href: '/permissions',
+    icon: KeyRound,
+    roles: ['ROLE_ADMIN'],
+  },
 ];
 
 export function Sidebar() {
@@ -74,7 +76,7 @@ export function Sidebar() {
       {/* Menu */}
       <ScrollArea className="flex-1 py-4">
         <nav className="space-y-1 px-2">
-          {menuItems.map((item) => {
+          {menuItems.filter((item) => !item.roles || item.roles.some((role) => user?.roles.includes(role))).map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
 

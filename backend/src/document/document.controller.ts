@@ -23,6 +23,7 @@ import { UploadParseDto } from './dto/upload-parse.dto';
 import { QueryReviewTasksDto, ReviewDecisionDto } from './dto/review.dto';
 import { Roles } from '../auth/roles.decorator';
 import { RoleCode } from '../user/entities/role.entity';
+import { Permissions } from '../auth/permissions.decorator';
 
 interface AuthenticatedRequest {
   user: {
@@ -42,12 +43,14 @@ export class DocumentController {
 
   /** 创建文档 */
   @Post()
+  @Permissions('document:create')
   create(@Body() dto: CreateDocumentDto, @Req() req: AuthenticatedRequest) {
     return this.documentService.create(dto, req.user.id);
   }
 
   /** 上传文件并解析为 Markdown，创建草稿（form-data 字段名: file） */
   @Post('upload/parse')
+  @Permissions('document:create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 50 * 1024 * 1024 },
@@ -71,6 +74,7 @@ export class DocumentController {
   /** 审核待办列表（须在 @Get(':id') 之前注册，避免路由被 :id 吃掉） */
   @Get('reviews/tasks')
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
+  @Permissions('document:review')
   listReviewTasks(@Query() query: QueryReviewTasksDto) {
     return this.reviewService.listTasks(query);
   }
@@ -78,6 +82,7 @@ export class DocumentController {
   /** 待审核数量（导航角标等） */
   @Get('reviews/tasks/pending-count')
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
+  @Permissions('document:review')
   pendingReviewCount() {
     return this.reviewService.getPendingCount();
   }
@@ -90,24 +95,28 @@ export class DocumentController {
 
   /** 发布文档（需审核时进入待审；免审则直接发布并投递 MQ） */
   @Put(':id/publish')
+  @Permissions('document:publish')
   publish(@Param('id') id: string) {
     return this.documentService.publish(id);
   }
 
   /** 归档：Published → Archived，并清 RAG/Search/KG 索引 */
   @Put(':id/archive')
+  @Permissions('document:archive')
   archive(@Param('id') id: string) {
     return this.documentService.archive(id);
   }
 
   /** 下架编辑：Published → Draft，清索引后可改内容再提审/发布 */
   @Put(':id/save-draft')
+  @Permissions('document:update')
   saveAsDraft(@Param('id') id: string) {
     return this.documentService.saveAsDraft(id);
   }
 
   /** 单独提交审核（也可由 publish 在需审核时内部调用） */
   @Post(':id/reviews/submit')
+  @Permissions('document:submit-review')
   submitReview(@Param('id') id: string) {
     return this.reviewService.submitForReview(id);
   }
@@ -127,6 +136,7 @@ export class DocumentController {
   /** 审核通过 → 文档 Published + 重建索引 */
   @Post('reviews/tasks/:taskId/approve')
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
+  @Permissions('document:review')
   approveReview(
     @Param('taskId') taskId: string,
     @Body() dto: ReviewDecisionDto,
@@ -143,6 +153,7 @@ export class DocumentController {
   /** 审核驳回 → 文档回 Draft，作者可修改后再次 submit */
   @Post('reviews/tasks/:taskId/reject')
   @Roles(RoleCode.Admin, RoleCode.Reviewer)
+  @Permissions('document:review')
   rejectReview(
     @Param('taskId') taskId: string,
     @Body() dto: ReviewDecisionDto,
@@ -164,12 +175,14 @@ export class DocumentController {
 
   /** 更新文档 */
   @Patch(':id')
+  @Permissions('document:update')
   update(@Param('id') id: string, @Body() dto: UpdateDocumentDto) {
     return this.documentService.update(id, dto);
   }
 
   /** 软删除文档 */
   @Delete(':id')
+  @Permissions('document:delete')
   remove(@Param('id') id: string) {
     return this.documentService.remove(id);
   }

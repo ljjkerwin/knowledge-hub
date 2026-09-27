@@ -11,6 +11,7 @@ import { LoginCryptoService } from './login-crypto.service';
 import { RolesGuard } from './roles.guard';
 import { RefreshSessionService } from './refresh-session.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { PermissionsGuard } from './permissions.guard';
 
 @Module({
   imports: [
@@ -37,6 +38,10 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     LoginCryptoService,
     RefreshSessionService,

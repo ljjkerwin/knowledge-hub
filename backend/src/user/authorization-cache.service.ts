@@ -7,6 +7,7 @@ export interface AuthorizationSnapshot {
   id: string;
   username: string;
   roles: RoleCode[];
+  permissions: string[];
 }
 
 /**
@@ -254,7 +255,10 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
         typeof value.username === 'string' &&
         'roles' in value &&
         Array.isArray(value.roles) &&
-        value.roles.every((role) => typeof role === 'string'),
+        value.roles.every((role) => typeof role === 'string') &&
+        'permissions' in value &&
+        Array.isArray(value.permissions) &&
+        value.permissions.every((permission) => typeof permission === 'string'),
     );
   }
 

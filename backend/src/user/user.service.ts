@@ -4,12 +4,14 @@ import { Repository } from 'typeorm';
 import { UserEntity } from './entities/user.entity';
 import { RoleCode, RoleEntity } from './entities/role.entity';
 import { UserRoleEntity } from './entities/user-role.entity';
+import { PermissionEntity } from './entities/permission.entity';
+import { RolePermissionEntity } from './entities/role-permission.entity';
 import {
   AuthorizationCacheService,
   AuthorizationSnapshot,
 } from './authorization-cache.service';
 
-export type UserWithRoles = UserEntity & { roles: RoleCode[] };
+export type UserWithRoles = UserEntity & { roles: RoleCode[]; permissions: string[] };
 
 @Injectable()
 export class UserService {
@@ -55,6 +57,7 @@ export class UserService {
         id: user.id,
         username: user.username,
         roles: await this.findRoleCodes(user.id),
+        permissions: await this.findPermissionCodes(user.id),
       };
     });
   }
@@ -65,7 +68,11 @@ export class UserService {
   }
 
   private async withRoles(user: UserEntity): Promise<UserWithRoles> {
-    return Object.assign(user, { roles: await this.findRoleCodes(user.id) });
+    const [roles, permissions] = await Promise.all([
+      this.findRoleCodes(user.id),
+      this.findPermissionCodes(user.id),
+    ]);
+    return Object.assign(user, { roles, permissions });
   }
 
   private async findRoleCodes(userId: string): Promise<RoleCode[]> {
@@ -82,5 +89,20 @@ export class UserService {
       .getRawMany<{ roleCode: RoleCode }>();
 
     return rows.map(({ roleCode }) => roleCode);
+  }
+
+  private async findPermissionCodes(userId: string): Promise<string[]> {
+    const rows = await this.roleRepo
+      .createQueryBuilder('role')
+      .innerJoin(UserRoleEntity, 'userRole', 'userRole.role_id = role.id AND userRole.user_id = :userId', { userId })
+      .innerJoin(RolePermissionEntity, 'rolePermission', 'rolePermission.role_id = role.id')
+      .innerJoin(PermissionEntity, 'permission', 'permission.id = rolePermission.permission_id')
+      .where('role.status = :roleStatus', { roleStatus: 1 })
+      .andWhere('permission.status = :permissionStatus', { permissionStatus: 1 })
+      .andWhere('permission.deleted = false')
+      .select('DISTINCT permission.permission_code', 'permissionCode')
+      .getRawMany<{ permissionCode: string }>();
+
+    return rows.map(({ permissionCode }) => permissionCode);
   }
 }

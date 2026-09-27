@@ -157,6 +157,32 @@ export interface User {
   nickname?: string;
   avatar?: string;
   roles: string[];
+  permissions: string[];
+}
+
+export type PermissionType = 1 | 2 | 3;
+
+export interface Permission {
+  id: string;
+  parentId: string;
+  permissionName: string;
+  permissionCode: string;
+  permissionType: PermissionType;
+  menuUrl?: string | null;
+  apiUrl?: string | null;
+  method?: string | null;
+  icon?: string | null;
+  sort: number;
+  status: number;
+}
+
+export interface RoleWithPermissions {
+  id: string;
+  roleName: string;
+  roleCode: string;
+  description?: string | null;
+  status: number;
+  permissionIds: string[];
 }
 
 /**

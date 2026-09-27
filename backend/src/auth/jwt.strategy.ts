@@ -29,6 +29,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     // 通过 L1 → Redis → PostgreSQL 取得最新授权快照。
     // 注入到req.user
-    return { id: user.id, username: user.username, roles: user.roles };
+    return {
+      id: user.id,
+      username: user.username,
+      roles: user.roles,
+      permissions: user.permissions,
+    };
   }
 }
