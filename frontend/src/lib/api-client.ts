@@ -1,4 +1,5 @@
 import { ApiResponse } from '@/types/api.types';
+import { clearAccessToken, getAccessToken } from '@/lib/access-token';
 
 const backendUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002')
   .replace(/\/$/, '')
@@ -25,20 +26,11 @@ export class ApiError extends Error {
 }
 
 /**
- * 获取存储的 token
- */
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('kh_token');
-}
-
-/**
  * 清除认证状态并跳转登录
  */
 function handleUnauthorized() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem('kh_token');
-  localStorage.removeItem('kh_user');
+  clearAccessToken();
   const next = `${window.location.pathname}${window.location.search}`;
   window.location.href = `/login?next=${encodeURIComponent(next)}`;
 }
@@ -53,7 +45,7 @@ export const apiClient = {
   ): Promise<T> {
     const { skipUnauthorizedRedirect, ...fetchOptions } = options;
     const url = `${API_BASE_URL}${endpoint}`;
-    const token = getToken();
+    const token = getAccessToken();
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -67,6 +59,7 @@ export const apiClient = {
     const response = await fetch(url, {
       ...fetchOptions,
       headers,
+      credentials: 'include',
     });
 
     if (response.status === 401 && !skipUnauthorizedRedirect) {

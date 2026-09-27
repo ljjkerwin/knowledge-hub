@@ -27,14 +27,14 @@ function ChatPageContent() {
   const [isInitializingConversation, setIsInitializingConversation] =
     useState(() => Boolean(searchParams.get('conversationId')));
 
-  // 初始化：从 localStorage 恢复登录状态，未登录则跳转
+  // 刷新 HttpOnly refresh token 以恢复仅存在内存中的 access token。
   useEffect(() => {
-    loadFromStorage();
-    const { isAuthenticated: authed } = useAuthStore.getState();
-    if (!authed) {
-      const next = `${window.location.pathname}${window.location.search}`;
-      router.replace(`/login?next=${encodeURIComponent(next)}`);
-    }
+    void loadFromStorage().then((authed) => {
+      if (!authed) {
+        const next = `${window.location.pathname}${window.location.search}`;
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
+      }
+    });
   }, [loadFromStorage, router]);
 
   // 首次加载：URL 是当前会话的初始唯一来源。先同步 ID，再加载历史，

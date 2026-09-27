@@ -37,4 +37,16 @@ export const authService = {
   async getProfile(): Promise<User> {
     return apiClient.get<User>('/auth/profile');
   },
+
+  async refresh(): Promise<LoginResponse> {
+    return apiClient.post<LoginResponse>('/auth/refresh', undefined, {
+      skipUnauthorizedRedirect: true,
+    });
+  },
+
+  async logout(): Promise<void> {
+    return apiClient.post<void>('/auth/logout', undefined, {
+      skipUnauthorizedRedirect: true,
+    });
+  },
 };

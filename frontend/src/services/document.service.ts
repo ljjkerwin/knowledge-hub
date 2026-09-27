@@ -1,4 +1,5 @@
 import { apiClient, API_BASE_URL } from '@/lib/api-client';
+import { getAccessToken } from '@/lib/access-token';
 import {
   DocumentPayload,
   KnowledgeDocument,
@@ -49,9 +50,9 @@ export const documentService = {
     const formData = new FormData();
     formData.append('file', file);
     Object.entries(metadata).forEach(([key, value]) => value && formData.append(key, value));
-    const token = typeof window === 'undefined' ? null : localStorage.getItem('kh_token');
+    const token = getAccessToken();
     const response = await fetch(`${API_BASE_URL}/documents/upload/parse`, {
-      method: 'POST', body: formData, headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      method: 'POST', body: formData, headers: token ? { Authorization: `Bearer ${token}` } : undefined, credentials: 'include',
     });
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message || '文件上传失败');
     return response.json() as Promise<{ documentId: string }>;

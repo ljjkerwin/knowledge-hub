@@ -20,14 +20,8 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 检查是否有 token cookie（登录时设置）
-  const token = request.cookies.get('kh_token')?.value;
-  if (!token) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('next', `${pathname}${request.nextUrl.search}`);
-    return NextResponse.redirect(loginUrl);
-  }
-
+  // Access token 只存在浏览器内存，refresh token 是后端域名下的 HttpOnly Cookie，
+  // 因此前端 Proxy 无法且不应读取认证凭证。受保护页面在客户端刷新会话后校验。
   return NextResponse.next();
 }
 

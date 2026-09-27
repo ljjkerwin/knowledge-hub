@@ -1,84 +1,66 @@
 import { create } from 'zustand';
 import { User } from '@/types/api.types';
 import { authService } from '@/services/auth.service';
+import { clearAccessToken, setAccessToken } from '@/lib/access-token';
 
-const TOKEN_KEY = 'kh_token';
-const USER_KEY = 'kh_user';
-
-function setCookie(name: string, value: string, days: number) {
-  const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Lax`;
-}
-
-function removeCookie(name: string) {
-  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-}
-
-function getCookie(name: string): string | null {
-  const prefix = `${name}=`;
-  const cookie = document.cookie
-    .split('; ')
-    .find((item) => item.startsWith(prefix));
-
-  return cookie ? cookie.slice(prefix.length) : null;
-}
+// refresh token 启用了单次使用轮换。同一页面可能有多个组件（开发模式下还会
+// 重复执行 effect）同时恢复会话，因此必须合并并发刷新，避免后一个请求重放旧 token。
+let restoreSessionPromise: Promise<boolean> | null = null;
 
 interface AuthState {
   user: User | null;
-  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 
   login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
-  loadFromStorage: () => void;
+  logout: () => Promise<void>;
+  loadFromStorage: () => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  token: null,
   isAuthenticated: false,
   isLoading: false,
 
   login: async (username: string, password: string) => {
     set({ isLoading: true });
     try {
-      const { user, token } = await authService.login({ username, password });
-      localStorage.setItem(TOKEN_KEY, token);
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-      setCookie(TOKEN_KEY, token, 7);
-      set({ user, token, isAuthenticated: true, isLoading: false });
+      const { user, accessToken } = await authService.login({ username, password });
+      setAccessToken(accessToken);
+      set({ user, isAuthenticated: true, isLoading: false });
     } catch (error) {
       set({ isLoading: false });
       throw error;
     }
   },
 
-  logout: () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    removeCookie(TOKEN_KEY);
-    set({ user: null, token: null, isAuthenticated: false });
+  logout: async () => {
+    try {
+      await authService.logout();
+    } finally {
+      clearAccessToken();
+      set({ user: null, isAuthenticated: false });
+    }
   },
 
   loadFromStorage: () => {
-    try {
-      const token = localStorage.getItem(TOKEN_KEY);
-      const userStr = localStorage.getItem(USER_KEY);
-      // 页面路由由 Cookie 保护；仅凭 localStorage 不能视为已登录，
-      // 否则 Cookie 失效时会在登录页和受保护页之间循环跳转。
-      if (token && userStr && getCookie(TOKEN_KEY) === token) {
-        const user = JSON.parse(userStr) as User;
-        set({ user, token, isAuthenticated: true });
-      } else {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
-        set({ user: null, token: null, isAuthenticated: false });
+    if (restoreSessionPromise) return restoreSessionPromise;
+
+    restoreSessionPromise = (async () => {
+      try {
+        const { user, accessToken } = await authService.refresh();
+        setAccessToken(accessToken);
+        set({ user, isAuthenticated: true });
+        return true;
+      } catch {
+        clearAccessToken();
+        set({ user: null, isAuthenticated: false });
+        return false;
+      } finally {
+        restoreSessionPromise = null;
       }
-    } catch {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-      removeCookie(TOKEN_KEY);
-    }
+    })();
+
+    return restoreSessionPromise;
   },
 }));

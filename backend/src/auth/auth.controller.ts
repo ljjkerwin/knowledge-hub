@@ -4,8 +4,11 @@ import {
   Get,
   Post,
   Request,
+  Response,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -27,14 +30,41 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly userService: UserService,
     private readonly loginCryptoService: LoginCryptoService,
+    private readonly config: ConfigService,
   ) {}
 
   @Post('login')
-  async login(@Body() dto: LoginDto) {
-    return this.authService.login(
+  async login(@Body() dto: LoginDto, @Response({ passthrough: true }) response: ExpressResponse) {
+    const result = await this.authService.login(
       dto.username,
       this.loginCryptoService.decrypt(dto.password),
     );
+    this.setRefreshCookie(response, result.refreshToken);
+    return { user: result.user, accessToken: result.accessToken };
+  }
+
+  @Post('refresh')
+  async refresh(
+    @Request() request: ExpressRequest,
+    @Response({ passthrough: true }) response: ExpressResponse,
+  ) {
+    const result = await this.authService.refresh(this.readRefreshCookie(request));
+    this.setRefreshCookie(response, result.refreshToken);
+    return { user: result.user, accessToken: result.accessToken };
+  }
+
+  @Post('logout')
+  async logout(
+    @Request() request: ExpressRequest,
+    @Response({ passthrough: true }) response: ExpressResponse,
+  ) {
+    try {
+      await this.authService.logout(this.readRefreshCookie(request));
+    } finally {
+      // 即使 Redis 暂时不可用，也不应继续让浏览器携带旧会话 cookie。
+      response.clearCookie(this.refreshCookieName(), { path: '/api/auth' });
+    }
+    return { success: true };
   }
 
   @Get('profile')
@@ -51,5 +81,33 @@ export class AuthController {
       avatar: user.avatar,
         roles: user.roles,
     };
+  }
+
+  private setRefreshCookie(response: ExpressResponse, token: string) {
+    response.cookie(this.refreshCookieName(), token, {
+      httpOnly: true,
+      secure: this.config.get<string>('NODE_ENV') === 'production',
+      sameSite: 'lax',
+      path: '/api/auth',
+      maxAge: this.authService.getRefreshTokenTtlSeconds() * 1000,
+    });
+  }
+
+  private readRefreshCookie(request: ExpressRequest): string {
+    const name = this.refreshCookieName();
+    const cookie = request.headers.cookie
+      ?.split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${name}=`));
+    if (!cookie) return '';
+    try {
+      return decodeURIComponent(cookie.slice(name.length + 1));
+    } catch {
+      return '';
+    }
+  }
+
+  private refreshCookieName() {
+    return this.config.get<string>('REFRESH_TOKEN_COOKIE_NAME', 'kh_refresh_token');
   }
 }

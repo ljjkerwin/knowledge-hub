@@ -1,4 +1,5 @@
 import { apiClient, API_BASE_URL } from '@/lib/api-client';
+import { getAccessToken } from '@/lib/access-token';
 import {
   ChatRequest,
   Conversation,
@@ -22,11 +23,12 @@ export const conversationService = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(typeof window !== 'undefined' && localStorage.getItem('kh_token')
-            ? { Authorization: `Bearer ${localStorage.getItem('kh_token')}` }
+          ...(getAccessToken()
+            ? { Authorization: `Bearer ${getAccessToken()}` }
             : {}),
         },
         body: JSON.stringify(request),
+        credentials: 'include',
       },
     );
 

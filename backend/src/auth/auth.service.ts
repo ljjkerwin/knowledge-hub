@@ -2,13 +2,15 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { UserService } from '../user/user.service';
+import { UserService, UserWithRoles } from '../user/user.service';
+import { RefreshSessionService } from './refresh-session.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
+    private readonly refreshSessions: RefreshSessionService,
   ) {}
 
   async validateUser(username: string, password: string) {
@@ -45,11 +47,33 @@ export class AuthService {
 
   async login(username: string, password: string) {
     const user = await this.validateUser(username, password);
+    const refreshToken = await this.refreshSessions.create(user.id);
+    return { ...this.authResponse(user), refreshToken };
+  }
+
+  async refresh(refreshToken: string) {
+    const session = await this.refreshSessions.consume(refreshToken);
+    const user = await this.userService.findById(session.userId);
+    if (!user) {
+      throw new UnauthorizedException('用户不存在或已被禁用');
+    }
+    const nextRefreshToken = await this.refreshSessions.create(user.id);
+    return { ...this.authResponse(user), refreshToken: nextRefreshToken };
+  }
+
+  async logout(refreshToken: string | undefined) {
+    await this.refreshSessions.revoke(refreshToken);
+  }
+
+  getRefreshTokenTtlSeconds() {
+    return this.refreshSessions.getTtlSeconds();
+  }
+
+  private authResponse(user: UserWithRoles) {
 
     // JWT 仅承载身份；角色从服务端授权快照读取，权限变更无需等待 JWT 过期。
     const payload = { sub: user.id };
-    console.log(payload)
-    const token = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload);
 
     return {
       user: {
@@ -60,7 +84,7 @@ export class AuthService {
         avatar: user.avatar,
         roles: user.roles,
       },
-      token,
+      accessToken,
     };
   }
 }

@@ -25,30 +25,30 @@ import { useAuthStore } from "@/stores/auth.store";
 import { DocumentKnowledgeGraphDialog } from "@/components/documents/document-knowledge-graph-dialog";
 
 interface DocumentDetailClientProps {
-  initialDocument: KnowledgeDocument;
+  documentId: string;
 }
 
 export default function DocumentDetailClient({
-  initialDocument,
+  documentId,
 }: DocumentDetailClientProps) {
   return (
     <Suspense fallback={null}>
       <DocumentDetailPageContent
-        key={initialDocument.id}
-        initialDocument={initialDocument}
+        key={documentId}
+        documentId={documentId}
       />
     </Suspense>
   );
 }
 
 function DocumentDetailPageContent({
-  initialDocument,
+  documentId,
 }: DocumentDetailClientProps) {
   // console.log('clent render DocumentDetailPageContent')
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loadFromStorage } = useAuthStore();
-  const [doc, setDoc] = useState<KnowledgeDocument>(initialDocument);
+  const [doc, setDoc] = useState<KnowledgeDocument | null>(null);
   const [history, setHistory] = useState<ReviewTask[]>([]);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
@@ -61,8 +61,23 @@ function DocumentDetailPageContent({
     );
   const citationChunkId = searchParams.get("citation");
   useEffect(() => {
-    loadFromStorage();
-  }, [loadFromStorage]);
+    let cancelled = false;
+    void loadFromStorage().then(async (authed) => {
+      if (!authed) {
+        router.replace(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+        return;
+      }
+      try {
+        const loaded = await documentService.get(documentId);
+        if (!cancelled) setDoc(loaded);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "无法加载文档");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, loadFromStorage, router]);
   useEffect(() => {
     const manageable = Boolean(
       doc &&
