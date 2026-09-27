@@ -18,7 +18,7 @@ export class RoleEntity {
   roleName: string;
 
   @Column({ name: 'role_code', type: 'varchar', length: 50, unique: true })
-  roleCode: RoleCode;
+  roleCode: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
   description?: string | null;

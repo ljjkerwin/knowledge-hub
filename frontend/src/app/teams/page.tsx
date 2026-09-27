@@ -16,8 +16,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { TeamNode, TeamUser } from '@/types/api.types';
+import { RoleWithPermissions, TeamNode, TeamUser } from '@/types/api.types';
 import { TeamPayload, teamService } from '@/services/team.service';
+import { rbacService } from '@/services/rbac.service';
 import { useAuthStore } from '@/stores/auth.store';
 
 type FlatTeam = TeamNode & { depth: number };
@@ -38,6 +39,8 @@ export default function TeamsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<TeamPayload>(blankForm);
   const [newMemberId, setNewMemberId] = useState('');
+  const [roles, setRoles] = useState<RoleWithPermissions[]>([]);
+  const [teamRoleIds, setTeamRoleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -49,9 +52,10 @@ export default function TeamsPage() {
     setLoading(true);
     setError('');
     try {
-      const [nextTeams, nextUsers] = await Promise.all([teamService.list(), teamService.users()]);
+      const [nextTeams, nextUsers, nextRoles] = await Promise.all([teamService.list(), teamService.users(), rbacService.listRoles()]);
       setTeams(nextTeams);
       setUsers(nextUsers);
+      setRoles(nextRoles);
       if (selectedId && !flatten(nextTeams).some((team) => team.id === selectedId)) {
         setSelectedId(null);
         setForm(blankForm);
@@ -81,11 +85,13 @@ export default function TeamsPage() {
     setSelectedId(team.id);
     setForm({ teamName: team.teamName, teamCode: team.teamCode || '', description: team.description || '', leaderId: team.leaderId || '', parentId: team.parentId, sort: team.sort, status: team.status });
     setNewMemberId('');
+    void teamService.roles(team.id).then(setTeamRoleIds).catch((cause) => setError(cause instanceof Error ? cause.message : '无法加载团队角色'));
   };
   const createTeam = () => {
     setSelectedId(null);
     setForm({ ...blankForm, parentId: selected?.id || '0' });
     setNewMemberId('');
+    setTeamRoleIds([]);
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -132,6 +138,11 @@ export default function TeamsPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '移除成员失败');
     }
+  };
+  const saveTeamRoles = async () => {
+    if (!selectedId) return;
+    try { const result = await teamService.replaceRoles(selectedId, teamRoleIds); setTeamRoleIds(result.roleIds); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '保存团队角色失败'); }
   };
 
   if (!user || !isAdmin) return null;

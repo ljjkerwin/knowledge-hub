@@ -19,6 +19,7 @@ import {
   Brain,
   KeyRound,
   Building2,
+  Users,
   LogOut,
   User,
 } from 'lucide-react';
@@ -50,6 +51,12 @@ const menuItems = [
     title: '权限管理',
     href: '/permissions',
     icon: KeyRound,
+    roles: ['ROLE_ADMIN'],
+  },
+  {
+    title: '用户管理',
+    href: '/users',
+    icon: Users,
     roles: ['ROLE_ADMIN'],
   },
   {

@@ -185,6 +185,20 @@ export interface RoleWithPermissions {
   permissionIds: string[];
 }
 
+export interface ManagedUser {
+  id: string;
+  username: string;
+  email: string;
+  nickname?: string | null;
+  phone?: string | null;
+  status: 0 | 1;
+  lastLoginAt?: string | null;
+  createdAt: string;
+  roleIds: string[];
+  roleNames: string[];
+  roleCodes: string[];
+}
+
 export interface TeamUser {
   id: string;
   username: string;

@@ -7,6 +7,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { nextSnowflakeId } from '../common/snowflake-id';
 import { UserEntity, UserStatus } from '../user/entities/user.entity';
+import { RoleEntity } from '../user/entities/role.entity';
+import { AuthorizationCacheService } from '../user/authorization-cache.service';
+import { TeamRoleEntity } from './entities/team-role.entity';
 import { AddTeamMemberDto, CreateTeamDto, UpdateTeamDto } from './dto/team.dto';
 import { TeamEntity } from './entities/team.entity';
 import {
@@ -37,6 +40,9 @@ export class TeamService {
     private readonly memberRepo: Repository<TeamMemberEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(RoleEntity) private readonly roleRepo: Repository<RoleEntity>,
+    @InjectRepository(TeamRoleEntity) private readonly teamRoleRepo: Repository<TeamRoleEntity>,
+    private readonly authorizationCache: AuthorizationCacheService,
   ) {}
 
   async listTree(): Promise<TeamTreeNode[]> {
@@ -192,7 +198,28 @@ export class TeamService {
     if (team.leaderId === userId)
       throw new BadRequestException('请先指定新的负责人再移除当前负责人');
     await this.memberRepo.delete({ teamId, userId });
+    await this.authorizationCache.invalidate(userId);
     return { success: true };
+  }
+
+  async listRoles(teamId: string) {
+    await this.getTeam(teamId);
+    const links = await this.teamRoleRepo.find({ where: { teamId } });
+    return links.map((link) => link.roleId);
+  }
+
+  async replaceRoles(teamId: string, roleIds: string[]) {
+    await this.getTeam(teamId);
+    const uniqueIds = [...new Set(roleIds)];
+    const roles = uniqueIds.length ? await this.roleRepo.find({ where: { id: In(uniqueIds), status: 1 } }) : [];
+    if (roles.length !== uniqueIds.length) throw new BadRequestException('存在无效或已禁用的角色');
+    await this.teamRoleRepo.manager.transaction(async (manager) => {
+      await manager.delete(TeamRoleEntity, { teamId });
+      if (uniqueIds.length) await manager.insert(TeamRoleEntity, uniqueIds.map((roleId) => ({ id: nextSnowflakeId(), teamId, roleId })));
+    });
+    const members = await this.memberRepo.find({ where: { teamId } });
+    await Promise.all(members.map((member) => this.authorizationCache.invalidate(member.userId)));
+    return { teamId, roleIds: uniqueIds };
   }
 
   private async getTeam(id: string) {

@@ -48,6 +48,12 @@ export class TeamController {
     return this.teamService.addMember(id, dto);
   }
 
+  @Get(':id/roles')
+  listRoles(@Param('id') id: string) { return this.teamService.listRoles(id); }
+
+  @Patch(':id/roles')
+  replaceRoles(@Param('id') id: string, @Body() body: { roleIds: string[] }) { return this.teamService.replaceRoles(id, body.roleIds ?? []); }
+
   @Delete(':id/members/:userId')
   removeMember(@Param('id') id: string, @Param('userId') userId: string) {
     return this.teamService.removeMember(id, userId);

@@ -22,4 +22,7 @@ export const teamService = {
     apiClient.post(`/teams/${teamId}/members`, { userId, memberRole }),
   removeMember: (teamId: string, userId: string) =>
     apiClient.delete(`/teams/${teamId}/members/${userId}`),
+  roles: (teamId: string) => apiClient.get<string[]>(`/teams/${teamId}/roles`),
+  replaceRoles: (teamId: string, roleIds: string[]) =>
+    apiClient.patch<{ teamId: string; roleIds: string[] }>(`/teams/${teamId}/roles`, { roleIds }),
 };

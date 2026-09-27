@@ -1,12 +1,16 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
-import { RoleCode } from './entities/role.entity';
 
 export interface AuthorizationSnapshot {
   id: string;
   username: string;
-  roles: RoleCode[];
+  roles: string[];
   permissions: string[];
 }
 
@@ -17,13 +21,18 @@ export interface AuthorizationSnapshot {
  * 各实例的 L1；即使通知遗漏，L1 TTL 到期后仍会从 L2 / PostgreSQL 恢复。
  */
 @Injectable()
-export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy {
+export class AuthorizationCacheService
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(AuthorizationCacheService.name);
   private readonly l1 = new Map<
     string,
     { value: AuthorizationSnapshot; expiresAt: number }
   >();
-  private readonly inFlight = new Map<string, Promise<AuthorizationSnapshot | null>>();
+  private readonly inFlight = new Map<
+    string,
+    Promise<AuthorizationSnapshot | null>
+  >();
   private readonly enabled: boolean;
   private readonly l1TtlMs: number;
   private readonly l2TtlSeconds: number;
@@ -38,18 +47,11 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
   private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly config: ConfigService) {
-    this.enabled = config.get<string>('AUTHZ_CACHE_ENABLED', 'true') !== 'false';
+    this.enabled =
+      config.get<string>('AUTHZ_CACHE_ENABLED', 'true') !== 'false';
     this.l1TtlMs = this.positiveNumber('AUTHZ_L1_TTL_MS', 60_000, 1_000);
-    this.l2TtlSeconds = this.positiveNumber(
-      'AUTHZ_L2_TTL_SECONDS',
-      600,
-      1,
-    );
-    this.l1MaxEntries = this.positiveNumber(
-      'AUTHZ_L1_MAX_ENTRIES',
-      100_000,
-      1,
-    );
+    this.l2TtlSeconds = this.positiveNumber('AUTHZ_L2_TTL_SECONDS', 600, 1);
+    this.l1MaxEntries = this.positiveNumber('AUTHZ_L1_MAX_ENTRIES', 100_000, 1);
     this.l1CleanupIntervalMs = this.positiveNumber(
       'AUTHZ_L1_CLEANUP_INTERVAL_MS',
       60_000,
@@ -134,7 +136,9 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
     const pending = this.inFlight.get(userId);
     if (pending) return pending;
 
-    const load = this.load(userId, loader).finally(() => this.inFlight.delete(userId));
+    const load = this.load(userId, loader).finally(() =>
+      this.inFlight.delete(userId),
+    );
     this.inFlight.set(userId, load);
     return load;
   }
@@ -146,7 +150,10 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
 
     try {
       await this.client.del(this.key(userId));
-      await this.client.publish(this.invalidateChannel, JSON.stringify({ userId }));
+      await this.client.publish(
+        this.invalidateChannel,
+        JSON.stringify({ userId }),
+      );
     } catch (error) {
       this.markRedisUnavailable(error);
     }
@@ -166,7 +173,9 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
     return snapshot;
   }
 
-  private async getFromRedis(userId: string): Promise<AuthorizationSnapshot | null> {
+  private async getFromRedis(
+    userId: string,
+  ): Promise<AuthorizationSnapshot | null> {
     if (!this.redisReady || !this.client) return null;
     try {
       const raw = await this.client.get(this.key(userId));
@@ -248,17 +257,17 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
   private isSnapshot(value: unknown): value is AuthorizationSnapshot {
     return Boolean(
       value &&
-        typeof value === 'object' &&
-        'id' in value &&
-        typeof value.id === 'string' &&
-        'username' in value &&
-        typeof value.username === 'string' &&
-        'roles' in value &&
-        Array.isArray(value.roles) &&
-        value.roles.every((role) => typeof role === 'string') &&
-        'permissions' in value &&
-        Array.isArray(value.permissions) &&
-        value.permissions.every((permission) => typeof permission === 'string'),
+      typeof value === 'object' &&
+      'id' in value &&
+      typeof value.id === 'string' &&
+      'username' in value &&
+      typeof value.username === 'string' &&
+      'roles' in value &&
+      Array.isArray(value.roles) &&
+      value.roles.every((role) => typeof role === 'string') &&
+      'permissions' in value &&
+      Array.isArray(value.permissions) &&
+      value.permissions.every((permission) => typeof permission === 'string'),
     );
   }
 
@@ -278,6 +287,8 @@ export class AuthorizationCacheService implements OnModuleInit, OnModuleDestroy 
     this.client = null;
     this.subscriber = null;
     this.redisReady = false;
-    await Promise.all(clients.map((client) => client.quit().catch(() => client.disconnect())));
+    await Promise.all(
+      clients.map((client) => client.quit().catch(() => client.disconnect())),
+    );
   }
 }

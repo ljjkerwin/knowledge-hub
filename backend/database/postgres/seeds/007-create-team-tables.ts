@@ -30,6 +30,14 @@ const statements = [
     CONSTRAINT kh_team_member_role_check CHECK (member_role IN ('leader', 'member'))
   )`,
   'CREATE INDEX IF NOT EXISTS idx_kh_team_member_user_id ON kh_team_member(user_id)',
+  `CREATE TABLE IF NOT EXISTS kh_team_role (
+    id BIGINT PRIMARY KEY,
+    team_id BIGINT NOT NULL REFERENCES kh_team(id),
+    role_id BIGINT NOT NULL REFERENCES kh_role(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE (team_id, role_id)
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_kh_team_role_team_id ON kh_team_role(team_id)',
 ];
 
 async function main() {
