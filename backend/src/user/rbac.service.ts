@@ -5,13 +5,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { nextSnowflakeId } from '../common/snowflake-id';
 import { PermissionEntity } from './entities/permission.entity';
 import { RoleEntity } from './entities/role.entity';
 import { RolePermissionEntity } from './entities/role-permission.entity';
 import { UserRoleEntity } from './entities/user-role.entity';
 import { AuthorizationCacheService } from './authorization-cache.service';
+import { TeamEntity } from '../team/entities/team.entity';
+import { TeamMemberEntity } from '../team/entities/team-member.entity';
+import { TeamRoleEntity } from '../team/entities/team-role.entity';
 
 @Injectable()
 export class RbacService {
@@ -24,6 +27,12 @@ export class RbacService {
     private readonly rolePermissionRepo: Repository<RolePermissionEntity>,
     @InjectRepository(UserRoleEntity)
     private readonly userRoleRepo: Repository<UserRoleEntity>,
+    @InjectRepository(TeamEntity)
+    private readonly teamRepo: Repository<TeamEntity>,
+    @InjectRepository(TeamMemberEntity)
+    private readonly teamMemberRepo: Repository<TeamMemberEntity>,
+    @InjectRepository(TeamRoleEntity)
+    private readonly teamRoleRepo: Repository<TeamRoleEntity>,
     private readonly authorizationCache: AuthorizationCacheService,
   ) {}
 
@@ -112,13 +121,63 @@ export class RbacService {
         );
       }
     });
-    const affectedUsers = await this.userRoleRepo.find({ where: { roleId } });
+    await this.invalidateRoleRecipients(roleId);
+    return { roleId, permissionIds: uniqueIds };
+  }
+
+  /**
+   * 角色既可以直接授予用户，也可以授予团队；团队角色会向下继承。
+   * 修改角色权限后，必须同时清除两种来源的用户授权快照。
+   */
+  private async invalidateRoleRecipients(roleId: string): Promise<void> {
+    const [directAssignments, teamAssignments] = await Promise.all([
+      this.userRoleRepo.find({
+        where: { roleId },
+        select: { userId: true },
+      }),
+      this.teamRoleRepo.find({
+        where: { roleId },
+        select: { teamId: true },
+      }),
+    ]);
+    const assignedTeamIds = [
+      ...new Set(teamAssignments.map(({ teamId }) => teamId)),
+    ];
+
+    // 仅查询被授权团队的后代，而不是把整棵组织树读到应用内存。
+    const descendantRows = assignedTeamIds.length
+      ? await this.teamRepo.query<{ id: string }[]>(
+          `WITH RECURSIVE team_descendants AS (
+             SELECT id
+             FROM kh_team
+             WHERE id = ANY($1::bigint[]) AND deleted = false
+             UNION
+             SELECT child.id
+             FROM kh_team child
+             INNER JOIN team_descendants parent ON child.parent_id = parent.id
+             WHERE child.deleted = false
+           )
+           SELECT DISTINCT id FROM team_descendants`,
+          [assignedTeamIds],
+        )
+      : [];
+    const affectedTeamIds = descendantRows.map(({ id }) => String(id));
+    const inheritedMembers = affectedTeamIds.length
+      ? await this.teamMemberRepo.find({
+          where: { teamId: In(affectedTeamIds) },
+          select: { userId: true },
+        })
+      : [];
+    const userIds = new Set([
+      ...directAssignments.map(({ userId }) => userId),
+      ...inheritedMembers.map(({ userId }) => userId),
+    ]);
+
     await Promise.all(
-      affectedUsers.map(({ userId }) =>
+      [...userIds].map((userId) =>
         this.authorizationCache.invalidate(userId),
       ),
     );
-    return { roleId, permissionIds: uniqueIds };
   }
 
   async createPermission(input: PermissionInput) {
