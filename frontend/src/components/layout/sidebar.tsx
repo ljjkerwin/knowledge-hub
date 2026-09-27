@@ -23,6 +23,7 @@ import {
   Users,
   LogOut,
   User,
+  Loader2,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -46,7 +47,7 @@ const menuItems = [
     title: '审核工作台',
     href: '/documents/reviews',
     icon: ClipboardCheck,
-    // roles: ['ROLE_ADMIN', 'ROLE_REVIEWER'],
+    permissions: ['audit:page'],
   },
   {
     title: '权限管理',
@@ -77,7 +78,8 @@ const menuItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const { user, isAuthenticated, isLoading, logout } = useAuthStore();
+  const isAdmin = user?.roles.includes('ROLE_ADMIN');
 
   const handleLogout = () => {
     logout();
@@ -97,7 +99,10 @@ export function Sidebar() {
       {/* Menu */}
       <ScrollArea className="flex-1 py-4">
         <nav className="space-y-1 px-2">
-          {menuItems.filter((item) => !item.roles || item.roles.some((role) => user?.roles.includes(role))).map((item) => {
+          {menuItems.filter((item) => isAdmin || (
+            (!item.roles || item.roles.some((role) => user?.roles.includes(role))) &&
+            (!item.permissions || item.permissions.some((permission) => user?.permissions.includes(permission)))
+          )).map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
 
@@ -151,6 +156,11 @@ export function Sidebar() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        ) : isLoading ? (
+          <div className="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>恢复登录状态…</span>
+          </div>
         ) : (
           <Link
             href="/login"

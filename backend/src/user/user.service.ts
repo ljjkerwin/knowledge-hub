@@ -64,11 +64,13 @@ export class UserService {
       });
       if (!user) return null;
 
+      // 同一个授权快照只计算一次有效角色，再据此查询权限。
+      const roles = await this.findRoleCodes(user.id);
       return {
         id: user.id,
         username: user.username,
-        roles: await this.findRoleCodes(user.id),
-        permissions: await this.findPermissionCodes(user.id),
+        roles,
+        permissions: await this.findPermissionCodes(roles),
       };
     });
   }
@@ -79,14 +81,16 @@ export class UserService {
   }
 
   private async withRoles(user: UserEntity): Promise<UserWithRoles> {
-    const [roles, permissions] = await Promise.all([
-      this.findRoleCodes(user.id),
-      this.findPermissionCodes(user.id),
-    ]);
-    return Object.assign(user, { roles, permissions });
+    // 登录、个人资料等入口也复用 L1/Redis 授权快照，避免重复计算部门继承链。
+    const authorization = await this.findAuthorizationById(user.id);
+    return Object.assign(user, {
+      roles: authorization?.roles ?? [],
+      permissions: authorization?.permissions ?? [],
+    });
   }
 
   private async findRoleCodes(userId: string): Promise<string[]> {
+    // 用户可被直接授予角色；这部分不受部门归属影响。
     const directRows = await this.roleRepo
       .createQueryBuilder('role')
       .innerJoin(
@@ -99,19 +103,47 @@ export class UserService {
       .select('role.role_code', 'roleCode')
       .getRawMany<{ roleCode: string }>();
 
-    const memberships = await this.teamMemberRepo.find({ where: { userId } });
-    const teams = await this.teamRepo.find({ where: { deleted: false, status: 1 } });
-    const parentById = new Map(teams.map((team) => [team.id, team.parentId]));
-    const teamIds = new Set<string>();
-    memberships.forEach(({ teamId }) => { let current: string | undefined = teamId; while (current && current !== '0' && !teamIds.has(current)) { teamIds.add(current); current = parentById.get(current); } });
-    const teamRoles = teamIds.size ? await this.teamRoleRepo.find({ where: { teamId: In([...teamIds]) } }) : [];
+    // 数据库递归查询只返回该用户所在部门及其祖先，避免把整棵组织树加载到应用内存。
+    const memberships = await this.teamMemberRepo.find({
+      where: { userId },
+      select: { teamId: true },
+    });
+    const memberTeamIds = [...new Set(memberships.map(({ teamId }) => teamId))];
+    const ancestorRows = memberTeamIds.length
+      ? await this.teamRepo.query<{ id: string }[]>(
+          `WITH RECURSIVE team_ancestors AS (
+             SELECT id, parent_id
+             FROM kh_team
+             WHERE id = ANY($1::bigint[]) AND deleted = false AND status = 1
+             UNION
+             SELECT parent.id, parent.parent_id
+             FROM kh_team parent
+             INNER JOIN team_ancestors child ON child.parent_id = parent.id
+             WHERE parent.deleted = false AND parent.status = 1
+           )
+           SELECT DISTINCT id FROM team_ancestors`,
+          [memberTeamIds],
+        )
+      : [];
+    const teamIds = ancestorRows.map(({ id }) => String(id));
+
+    // 查询所有命中部门绑定的角色。停用角色会在下一步过滤，避免继续参与鉴权。
+    const teamRoles = teamIds.length
+      ? await this.teamRoleRepo.find({ where: { teamId: In(teamIds) } })
+      : [];
     const inheritedIds = [...new Set(teamRoles.map((link) => link.roleId))];
-    const inherited = inheritedIds.length ? await this.roleRepo.find({ where: { id: In(inheritedIds), status: 1 } }) : [];
+
+    const inherited = inheritedIds.length
+      ? await this.roleRepo.find({
+          where: { id: In(inheritedIds), status: 1 },
+        })
+      : [];
+
+    // 合并个人角色和继承角色；角色编码去重后作为后续权限查询的依据。
     return [...new Set([...directRows.map(({ roleCode }) => roleCode), ...inherited.map((role) => role.roleCode)])];
   }
 
-  private async findPermissionCodes(userId: string): Promise<string[]> {
-    const roleCodes = await this.findRoleCodes(userId);
+  private async findPermissionCodes(roleCodes: string[]): Promise<string[]> {
     if (!roleCodes.length) return [];
     const rows = await this.roleRepo
       .createQueryBuilder('role')

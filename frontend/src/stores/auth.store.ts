@@ -20,7 +20,8 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: false,
-  isLoading: false,
+  // 主布局挂载后会立刻恢复 HttpOnly refresh Cookie，会话结果返回前不显示登录入口。
+  isLoading: true,
 
   login: async (username: string, password: string) => {
     set({ isLoading: true });
@@ -46,6 +47,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   loadFromStorage: () => {
     if (restoreSessionPromise) return restoreSessionPromise;
 
+    set({ isLoading: true });
     restoreSessionPromise = (async () => {
       // 刷新页面时优先使用本地保存且未过期的 access token，避免每次都轮换 refresh token。
       if (getAccessToken()) {
@@ -69,6 +71,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ user: null, isAuthenticated: false });
         return false;
       } finally {
+        set({ isLoading: false });
         restoreSessionPromise = null;
       }
     })();

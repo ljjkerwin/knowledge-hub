@@ -57,6 +57,14 @@ const permissions = [
     '/documents/reviews/tasks/:taskId',
     'POST',
   ],
+  [
+    '107',
+    '审核工作台',
+    'audit:page',
+    '1',
+    '/documents/reviews',
+    '',
+  ],
 ] as const;
 
 // 普通用户保留原有文档编辑流程；审核员只获得审核权限；管理员拥有全部初始化权限。
@@ -65,6 +73,7 @@ const rolePermissionIds: Array<[string, string]> = [
     ([permissionId]) => ['1', permissionId] as [string, string],
   ),
   ['2', '106'],
+  ['2', '107'],
   ['3', '100'],
   ['3', '101'],
   ['3', '102'],

@@ -20,8 +20,10 @@ export class PermissionsGuard implements CanActivate {
     if (!required?.length) return true;
 
     const request = context.switchToHttp().getRequest<{
-      user?: { permissions?: string[] };
+      user?: { roles?: string[]; permissions?: string[] };
     }>();
+    // 平台管理员是超级管理员，不依赖角色-权限关联逐项维护权限。
+    if (request.user?.roles?.includes('ROLE_ADMIN')) return true;
     if (request.user?.permissions?.some((code) => required.includes(code))) {
       return true;
     }
