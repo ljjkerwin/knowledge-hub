@@ -130,6 +130,7 @@ export class TeamService {
       }),
     );
     if (team.leaderId) await this.setLeader(team.id, team.leaderId);
+    if (team.leaderId) await this.invalidateTeamHierarchyMembers(team.id);
     return team;
   }
 
@@ -163,6 +164,14 @@ export class TeamService {
         { memberRole: 'member' },
       );
     }
+    // 上级、状态或负责人变化会改变本部门及所有下级部门成员的继承角色。
+    if (
+      dto.parentId !== undefined ||
+      dto.status !== undefined ||
+      dto.leaderId !== undefined
+    ) {
+      await this.invalidateTeamHierarchyMembers(id);
+    }
     return this.getTeam(id);
   }
 
@@ -190,6 +199,12 @@ export class TeamService {
         },
         ['teamId', 'userId'],
       );
+    if (dto.memberRole === 'leader') {
+      await this.invalidateTeamHierarchyMembers(teamId);
+    } else {
+      // 新成员立即获得该部门及上级部门的继承角色。
+      await this.authorizationCache.invalidate(dto.userId);
+    }
     return { success: true };
   }
 
@@ -217,8 +232,8 @@ export class TeamService {
       await manager.delete(TeamRoleEntity, { teamId });
       if (uniqueIds.length) await manager.insert(TeamRoleEntity, uniqueIds.map((roleId) => ({ id: nextSnowflakeId(), teamId, roleId })));
     });
-    const members = await this.memberRepo.find({ where: { teamId } });
-    await Promise.all(members.map((member) => this.authorizationCache.invalidate(member.userId)));
+    // 父部门角色会被下级部门成员继承，不能只失效当前部门成员。
+    await this.invalidateTeamHierarchyMembers(teamId);
     return { teamId, roleIds: uniqueIds };
   }
 
@@ -266,6 +281,46 @@ export class TeamService {
     await this.memberRepo.upsert(
       { id: nextSnowflakeId(), teamId, userId, memberRole: 'leader' },
       ['teamId', 'userId'],
+    );
+  }
+
+  /**
+   * 失效一个部门及其全部下级部门成员的授权快照。
+   * 成员在鉴权时会继承自己所在部门到根部门路径上的角色，因此父级角色
+   * 调整必须同步清理下级成员的 L1/L2 缓存。
+   */
+  private async invalidateTeamHierarchyMembers(teamId: string) {
+    const teams = await this.teamRepo.find({
+      where: { deleted: false },
+      select: { id: true, parentId: true },
+    });
+    const childrenByParent = new Map<string, string[]>();
+    teams.forEach((team) => {
+      const children = childrenByParent.get(team.parentId) ?? [];
+      children.push(team.id);
+      childrenByParent.set(team.parentId, children);
+    });
+
+    const affectedTeamIds = new Set<string>([teamId]);
+    const pending = [teamId];
+    while (pending.length) {
+      const currentId = pending.pop()!;
+      for (const childId of childrenByParent.get(currentId) ?? []) {
+        if (!affectedTeamIds.has(childId)) {
+          affectedTeamIds.add(childId);
+          pending.push(childId);
+        }
+      }
+    }
+
+    const members = await this.memberRepo.find({
+      where: { teamId: In([...affectedTeamIds]) },
+      select: { userId: true },
+    });
+    await Promise.all(
+      [...new Set(members.map((member) => member.userId))].map((userId) =>
+        this.authorizationCache.invalidate(userId),
+      ),
     );
   }
 
