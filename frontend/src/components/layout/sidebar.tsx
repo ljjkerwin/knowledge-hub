@@ -18,6 +18,7 @@ import {
   Network,
   Brain,
   KeyRound,
+  Shield,
   Building2,
   Users,
   LogOut,
@@ -51,6 +52,12 @@ const menuItems = [
     title: '权限管理',
     href: '/permissions',
     icon: KeyRound,
+    roles: ['ROLE_ADMIN'],
+  },
+  {
+    title: '角色管理',
+    href: '/roles',
+    icon: Shield,
     roles: ['ROLE_ADMIN'],
   },
   {

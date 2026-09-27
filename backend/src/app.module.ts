@@ -23,6 +23,7 @@ import { UserModule } from './user/user.module';
 import { TeamModule } from './team/team.module';
 import { TeamEntity } from './team/entities/team.entity';
 import { TeamMemberEntity } from './team/entities/team-member.entity';
+import { TeamRoleEntity } from './team/entities/team-role.entity';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { TeamMemberEntity } from './team/entities/team-member.entity';
           RolePermissionEntity,
           TeamEntity,
           TeamMemberEntity,
+          TeamRoleEntity,
         ],
         synchronize: false,
       }),
