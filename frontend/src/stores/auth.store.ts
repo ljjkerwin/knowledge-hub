@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { User } from '@/types/api.types';
 import { authService } from '@/services/auth.service';
-import { clearAccessToken, setAccessToken } from '@/lib/access-token';
+import { clearAccessToken, getAccessToken, setAccessToken } from '@/lib/access-token';
 
 // refresh token 启用了单次使用轮换。同一页面可能有多个组件（开发模式下还会
 // 重复执行 effect）同时恢复会话，因此必须合并并发刷新，避免后一个请求重放旧 token。
@@ -47,6 +47,18 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (restoreSessionPromise) return restoreSessionPromise;
 
     restoreSessionPromise = (async () => {
+      // 刷新页面时优先使用本地保存且未过期的 access token，避免每次都轮换 refresh token。
+      if (getAccessToken()) {
+        try {
+          const user = await authService.getProfile();
+          set({ user, isAuthenticated: true });
+          return true;
+        } catch {
+          // JWT 可能已被服务端提前吊销；清除后回退到 refresh token。
+          clearAccessToken();
+        }
+      }
+
       try {
         const { user, accessToken } = await authService.refresh();
         setAccessToken(accessToken);

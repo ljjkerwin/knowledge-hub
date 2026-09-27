@@ -35,7 +35,9 @@ export const authService = {
    * 获取当前用户信息
    */
   async getProfile(): Promise<User> {
-    return apiClient.get<User>('/auth/profile');
+    return apiClient.request<User>('/auth/profile', {
+      skipUnauthorizedRedirect: true,
+    });
   },
 
   async refresh(): Promise<LoginResponse> {
