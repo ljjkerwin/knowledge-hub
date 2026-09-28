@@ -61,20 +61,24 @@ export class RerankerService {
     if (!this.enabled || !limited.length) return limited.slice(0, limit);
 
     try {
+      const rerankBody = {
+        model: this.model,
+        query,
+        documents: limited.map((chunk) => this.toDocument(chunk)),
+        // 请求全部评分，应用本地阈值后再截取最终 topK。
+        top_n: limited.length,
+        return_documents: false,
+      }
+
+      // this.logger.verbose(`rerankBody: ${JSON.stringify(rerankBody)}`);
+
       const response = await fetch(this.getEndpoint(), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: this.model,
-          query,
-          documents: limited.map((chunk) => this.toDocument(chunk)),
-          // 请求全部评分，应用本地阈值后再截取最终 topK。
-          top_n: limited.length,
-          return_documents: false,
-        }),
+        body: JSON.stringify(rerankBody),
         signal: AbortSignal.timeout(30_000),
       });
 
@@ -83,6 +87,8 @@ export class RerankerService {
       }
 
       const payload = (await response.json()) as RerankApiResponse;
+      // this.logger.verbose('rerankResponse', payload);
+
       const scores = new Map<number, number>();
       for (const item of payload.results ?? []) {
         if (
@@ -110,6 +116,12 @@ export class RerankerService {
       this.logger.verbose(
         `Rerank 完成：候选=${limited.length}，有效评分=${scores.size}，阈值=${this.minScore}，保留=${reranked.length}`,
       );
+      // 打印每一个候选 chunk 的内容和分数
+      // limited.forEach((item, index) => {
+      //   this.logger.verbose(
+      //     `候选 chunk ${index + 1}：分数=${scores.get(index) ?? '未评分'}\n${item.content}`,
+      //   );
+      // });
       return reranked;
     } catch (error) {
       this.logger.warn(`Rerank 失败，回退 WRRF 顺序：${error.message}`);

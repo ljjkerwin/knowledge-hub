@@ -48,14 +48,23 @@ Set it to `false` (or remove it) to disable reporting again.
 Publishing a document now sends one `document.ingest` task. It performs the
 shared chunk preparation once, stores the result in MongoDB's
 `document_chunks`, and uses that same chunk set for the vector and knowledge
-graph projections. OCR is disabled by default. To enable an OCR adapter for
-Markdown image URLs, configure an endpoint that accepts `{ imageUrl, documentId
-}` and returns either `{ text }` or `{ data: { text } }`:
+graph projections. OCR is disabled by default. To enable local OCR for Markdown
+images, configure `tesseract.js`, which uses the Simplified Chinese model by
+default:
 
 ```bash
 OCR_ENABLED=true
-OCR_ENDPOINT=https://your-ocr-service.example/recognize
+# Optional: defaults shown below. Pre-download models and set OCR_LANG_PATH in
+# production to avoid downloading them when the first image is indexed.
+OCR_LANGUAGE=chi_sim
+OCR_LANG_PATH=/opt/knowledge-hub/tessdata
+OCR_CACHE_PATH=/var/cache/knowledge-hub/tesseract
+OCR_MAX_IMAGE_BYTES=10485760
+OCR_RECYCLE_AFTER_JOBS=500
 ```
+
+OCR is processed by one reusable Worker at a time to bound memory consumption.
+The Worker is recycled after the configured number of images.
 
 VLM is intentionally not part of this pipeline.
 

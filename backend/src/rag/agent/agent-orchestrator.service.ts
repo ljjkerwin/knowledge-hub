@@ -324,7 +324,8 @@ export class AgentOrchestrator {
           {
             type: AguiEventType.THINKING,
             timestamp: Date.now(),
-            content: `开始第 ${state.iteration} 轮迭代分析...`,
+            // content: `开始第 ${state.iteration} 轮迭代分析...`,
+            content: `正在分析用户问题...`,
           },
           config,
         );
@@ -352,9 +353,9 @@ export class AgentOrchestrator {
           config,
         );
 
-        this.logger.verbose(
-          `[langgraph][analyze] ${JSON.stringify(analysis, null, 2)} ${analysis.rewritten}`,
-        );
+        // this.logger.verbose(
+        //   `[langgraph][analyze] ${JSON.stringify(analysis, null, 2)} ${analysis.rewritten}`,
+        // );
 
         return {
           analysis,
@@ -423,7 +424,7 @@ export class AgentOrchestrator {
         );
 
         this.logger.verbose(
-          `[langgraph][chunks] ${JSON.stringify(chunks, null, 2)}`,
+          `[retrieve][chunks] ${JSON.stringify(chunks, null, 2)}`,
         );
 
         const allChunks = this.takeTopAccumulatedChunks(
@@ -511,11 +512,12 @@ export class AgentOrchestrator {
         const assessment = await this.draftAssessmentService.assessDraft(
           state.answerQuestion,
           state.draft!,
+          { retrievedChunkCount: state.allChunks.length },
         );
 
-        this.logger.verbose(
-          `[langgraph][draftAssessment] ${JSON.stringify(assessment, null, 2)}`,
-        );
+        // this.logger.verbose(
+        //   `[langgraph][draftAssessment] ${JSON.stringify(assessment, null, 2)}`,
+        // );
 
         this.emit(
           {

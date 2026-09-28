@@ -21,6 +21,12 @@ export interface DraftAssessment {
   reasoning: string; // 评估理由
 }
 
+/** 供运行时评审使用的检索摘要，不向用户暴露。 */
+export interface DraftAssessmentContext {
+  /** 当前已去重并保留给草稿生成的有效知识库片段数。 */
+  retrievedChunkCount: number;
+}
+
 // LLM 输出 schema
 const draftAssessmentSchema = z.object({
   answerRelevance: z
@@ -76,13 +82,14 @@ export class DraftAssessmentService {
   async assessDraft(
     question: string,
     answer: GeneratedAnswer,
+    context?: DraftAssessmentContext,
   ): Promise<DraftAssessment> {
     this.logger.log(`评审答案草稿: 问题="${question.substring(0, 50)}..."`);
 
     try {
       const validated = await this.structuredLlm.invoke([
         new SystemMessage(this.getSystemPrompt()),
-        new HumanMessage(this.buildEvaluationPrompt(question, answer)),
+        new HumanMessage(this.buildEvaluationPrompt(question, answer, context)),
       ]);
 
       const result: DraftAssessment = {
@@ -131,18 +138,20 @@ export class DraftAssessmentService {
 2. **完整性**（0-1）：草稿是否遗漏关键信息，写入 answerCompleteness
 3. **是否继续检索**：当前草稿是否值得继续检索以获得更好答案，写入 shouldRetrieveMore
 
-## 评估标准
-- 高分（0.8-1.0）：答案准确、完整、直接回答问题
-- 中分（0.5-0.8）：答案基本相关，但可能不够完整
-- 低分（0-0.5）：答案偏离问题或严重不完整
+## 完整性与补检索的判定原则
+- 完整性只衡量用户问题中**明确要求**的信息是否被回答，不衡量你能想象出的所有比赛细节、背景或技术统计。
+- 若已有引用直接覆盖问题的核心事实（例如提问某局的情况，答案已说明该局的比分、局势变化和结果），即使资料未提供关键分、战术、暂停、发球轮次等额外细节，也应视为完整：answerCompleteness 通常应为 0.8 以上，shouldRetrieveMore=false。
+- 不要因为用户使用“具体情况”“详情”等泛化措辞，就自行把问题扩大为逐分过程、技术统计、战术分析等未明确要求的内容。
+- 只有存在明确且重要的事实缺口，且该缺口能据此构造一个与当前检索词不同、在知识库中**有合理机会**召回互补资料的查询时，才设置 shouldRetrieveMore=true。
+- 当“有效召回片段数”很少（尤其为 0 或 1），但其中资料已直接回答问题时，应优先基于已有资料作答；不能仅凭猜测可能存在更多细节而补检索。少量召回本身不是补检索理由。
+- 如果缺口只是资料中未出现的推测性细节，或无法提出明确、互补且可检索的查询，必须返回 shouldRetrieveMore=false、missingAspects=[]、followUpQueries=[]。
+- 对于问题本身含多个明确子问题、答案漏答其中之一，或答案与引用冲突、只有泛泛表述无法回答核心事实，才应给出较低完整性并考虑补检索。
 
-## 追问判断
-- 答案模糊或不确定时，建议追问
-- 问题涉及多个方面但答案只覆盖部分时，建议追问
-- 答案质量足够好时，不需要追问
-- missingAspects 必须指出答案缺少的具体实体、条件、步骤或对比项，不要写“信息不足”等泛化描述
-- followUpQueries 必须是可脱离上下文执行的知识库检索语句，直接针对 missingAspects；不要向用户索要信息
-- 若答案声称资料中没有某项信息，但用户问题包含多个实体，分别为未覆盖实体生成检索查询
+## 输出约束
+- 答案已充分覆盖用户明确问题时：shouldRetrieveMore=false，missingAspects 和 followUpQueries 均为空数组。
+- missingAspects 必须是用户明确要求却未覆盖的具体实体、条件、步骤或对比项；不要列出可选的扩展细节。
+- followUpQueries 必须是可脱离上下文执行的知识库检索语句，直接针对该明确缺口；不要向用户索要信息。
+- 若答案声称资料中没有某项信息，但用户问题包含多个实体，分别为未覆盖实体生成检索查询。
 
 `;
   }
@@ -153,11 +162,18 @@ export class DraftAssessmentService {
   private buildEvaluationPrompt(
     question: string,
     answer: GeneratedAnswer,
+    context?: DraftAssessmentContext,
   ): string {
     const citationsText =
       answer.citations.length > 0
         ? `\n引用来源：${answer.citations.map((c) => `[${c.index}] ${c.documentTitle}`).join(', ')}`
         : '\n无引用来源';
+
+    const retrievedChunkCount = context?.retrievedChunkCount;
+    const retrievalSummary =
+      typeof retrievedChunkCount === 'number'
+        ? `\n## 本轮检索摘要\n- 有效召回片段数：${retrievedChunkCount}\n- 已在草稿中引用的片段数：${answer.citations.length}\n`
+        : '';
 
     return `## 用户问题
 ${question}
@@ -167,6 +183,7 @@ ${answer.answer}
 
 ## 引用信息
 ${citationsText}
+${retrievalSummary}
 
 请评审这个草稿。`;
   }
