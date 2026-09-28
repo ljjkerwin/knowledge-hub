@@ -12,7 +12,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
 
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, rememberMe: boolean) => Promise<void>;
   logout: () => Promise<void>;
   loadFromStorage: () => Promise<boolean>;
 }
@@ -23,11 +23,15 @@ export const useAuthStore = create<AuthState>((set) => ({
   // 主布局挂载后会立刻恢复 HttpOnly refresh Cookie，会话结果返回前不显示登录入口。
   isLoading: true,
 
-  login: async (username: string, password: string) => {
+  login: async (username: string, password: string, rememberMe: boolean) => {
     set({ isLoading: true });
     try {
-      const { user, accessToken } = await authService.login({ username, password });
-      setAccessToken(accessToken);
+      const { user, accessToken, rememberMe: persistent } = await authService.login({
+        username,
+        password,
+        rememberMe,
+      });
+      setAccessToken(accessToken, persistent);
       set({ user, isAuthenticated: true, isLoading: false });
     } catch (error) {
       set({ isLoading: false });
@@ -40,7 +44,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       await authService.logout();
     } finally {
       clearAccessToken();
-      set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false, isLoading: false });
     }
   },
 
@@ -62,8 +66,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
 
       try {
-        const { user, accessToken } = await authService.refresh();
-        setAccessToken(accessToken);
+        const { user, accessToken, rememberMe } = await authService.refresh();
+        setAccessToken(accessToken, rememberMe);
         set({ user, isAuthenticated: true });
         return true;
       } catch {

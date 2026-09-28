@@ -245,6 +245,7 @@ export interface TeamNode {
 export interface LoginRequest {
   username: string;
   password: string;
+  rememberMe?: boolean;
 }
 
 /**
@@ -253,4 +254,5 @@ export interface LoginRequest {
 export interface LoginResponse {
   user: User;
   accessToken: string;
+  rememberMe: boolean;
 }

@@ -45,10 +45,10 @@ export class AuthService {
     return timingSafeEqual(Buffer.from(candidateHash), Buffer.from(storedHash));
   }
 
-  async login(username: string, password: string) {
+  async login(username: string, password: string, rememberMe = true) {
     const user = await this.validateUser(username, password);
-    const refreshToken = await this.refreshSessions.create(user.id);
-    return { ...this.authResponse(user), refreshToken };
+    const refreshToken = await this.refreshSessions.create(user.id, rememberMe);
+    return { ...this.authResponse(user), refreshToken, rememberMe };
   }
 
   async refresh(refreshToken: string) {
@@ -57,8 +57,8 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('用户不存在或已被禁用');
     }
-    const nextRefreshToken = await this.refreshSessions.create(user.id);
-    return { ...this.authResponse(user), refreshToken: nextRefreshToken };
+    const nextRefreshToken = await this.refreshSessions.create(user.id, session.persistent);
+    return { ...this.authResponse(user), refreshToken: nextRefreshToken, rememberMe: session.persistent };
   }
 
   async logout(refreshToken: string | undefined) {

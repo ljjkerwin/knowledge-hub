@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { useAuthStore } from '@/stores/auth.store';
+import { getRememberedLogin, saveRememberedLogin } from '@/lib/remembered-login';
 import { Brain, Loader2 } from 'lucide-react';
 
 function isSafeInternalPath(path: string | null): path is string {
@@ -32,15 +33,27 @@ function LoginPageContent() {
   const next = searchParams.get('next');
   const returnPath = getReturnPath(next);
   const hasNext = isSafeInternalPath(next);
+  const justLoggedOut = searchParams.get('logout') === '1';
   const redirectStartedRef = useRef(false);
 
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadFromStorage();
-  }, [loadFromStorage]);
+    if (!justLoggedOut) {
+      void loadFromStorage();
+    }
+  }, [justLoggedOut, loadFromStorage]);
+
+  useEffect(() => {
+    const credentials = getRememberedLogin();
+    if (!credentials) return;
+
+    if (usernameInputRef.current) usernameInputRef.current.value = credentials.username;
+    if (passwordInputRef.current) passwordInputRef.current.value = credentials.password;
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated && !redirectStartedRef.current) {
@@ -52,14 +65,18 @@ function LoginPageContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    const username = usernameInputRef.current?.value.trim() ?? '';
+    const password = passwordInputRef.current?.value ?? '';
 
-    if (!username.trim() || !password.trim()) {
+    if (!username || !password) {
       setError('请输入用户名和密码');
       return;
     }
 
     try {
-      await login(username, password);
+      // 复选框只用于记住账号密码；登录会话在关闭浏览器后失效。
+      await login(username, password, false);
+      saveRememberedLogin(rememberMe ? { username, password } : null);
       // 提交成功后立即跳转，不能只依赖状态 effect，否则在状态恢复的
       // 时序下可能停留在登录页。没有 next 时回到首页。
       redirectStartedRef.current = true;
@@ -101,10 +118,10 @@ function LoginPageContent() {
               id="username"
               type="text"
               placeholder="请输入用户名"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              ref={usernameInputRef}
               disabled={isLoading}
               autoFocus
+              autoComplete="username"
             />
           </div>
 
@@ -116,11 +133,25 @@ function LoginPageContent() {
               id="password"
               type="password"
               placeholder="请输入密码"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              ref={passwordInputRef}
               disabled={isLoading}
+              autoComplete="current-password"
             />
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setRememberMe(checked);
+                if (!checked) saveRememberedLogin(null);
+              }}
+              disabled={isLoading}
+            />
+            记住密码
+          </label>
 
           {error && (
             <p className="text-sm text-destructive text-center">{error}</p>

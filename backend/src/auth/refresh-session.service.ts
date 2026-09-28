@@ -12,6 +12,7 @@ import Redis from 'ioredis';
 interface RefreshSession {
   userId: string;
   createdAt: string;
+  persistent: boolean;
 }
 
 /**
@@ -61,11 +62,11 @@ export class RefreshSessionService implements OnModuleInit, OnModuleDestroy {
     if (client) await client.quit().catch(() => client.disconnect());
   }
 
-  async create(userId: string): Promise<string> {
+  async create(userId: string, persistent: boolean): Promise<string> {
     const token = randomBytes(48).toString('base64url');
     await this.redis().set(
       this.key(token),
-      JSON.stringify({ userId, createdAt: new Date().toISOString() } satisfies RefreshSession),
+      JSON.stringify({ userId, createdAt: new Date().toISOString(), persistent } satisfies RefreshSession),
       'EX',
       this.ttlSeconds,
     );
@@ -91,13 +92,16 @@ export class RefreshSessionService implements OnModuleInit, OnModuleDestroy {
         !('userId' in session) ||
         typeof session.userId !== 'string' ||
         !('createdAt' in session) ||
-        typeof session.createdAt !== 'string'
+        typeof session.createdAt !== 'string' ||
+        ('persistent' in session && typeof session.persistent !== 'boolean')
       ) {
         throw new Error('invalid refresh session');
       }
       return {
         userId: session.userId,
         createdAt: session.createdAt,
+        // 兼容升级前已签发的 refresh session：它们原本就是持久会话。
+        persistent: !('persistent' in session) || session.persistent !== false,
       };
     } catch {
       throw new UnauthorizedException('登录会话无效，请重新登录');

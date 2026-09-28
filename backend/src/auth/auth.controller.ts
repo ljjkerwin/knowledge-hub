@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
-import { IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { UserService } from '../user/user.service';
 import { LoginCryptoService } from './login-crypto.service';
@@ -21,6 +21,10 @@ class LoginDto {
   @IsString()
   @MinLength(1)
   password: string;
+
+  @IsOptional()
+  @IsBoolean()
+  rememberMe?: boolean;
 }
 
 @Controller('auth')
@@ -38,9 +42,10 @@ export class AuthController {
     const result = await this.authService.login(
       dto.username,
       this.loginCryptoService.decrypt(dto.password),
+      dto.rememberMe,
     );
-    this.setRefreshCookie(response, result.refreshToken);
-    return { user: result.user, accessToken: result.accessToken };
+    this.setRefreshCookie(response, result.refreshToken, result.rememberMe);
+    return { user: result.user, accessToken: result.accessToken, rememberMe: result.rememberMe };
   }
 
   @Post('refresh')
@@ -50,8 +55,8 @@ export class AuthController {
     @Response({ passthrough: true }) response: ExpressResponse,
   ) {
     const result = await this.authService.refresh(this.readRefreshCookie(request));
-    this.setRefreshCookie(response, result.refreshToken);
-    return { user: result.user, accessToken: result.accessToken };
+    this.setRefreshCookie(response, result.refreshToken, result.rememberMe);
+    return { user: result.user, accessToken: result.accessToken, rememberMe: result.rememberMe };
   }
 
   @Post('logout')
@@ -85,13 +90,13 @@ export class AuthController {
     };
   }
 
-  private setRefreshCookie(response: ExpressResponse, token: string) {
+  private setRefreshCookie(response: ExpressResponse, token: string, rememberMe: boolean) {
     response.cookie(this.refreshCookieName(), token, {
       httpOnly: true,
       secure: this.config.get<string>('NODE_ENV') === 'production',
       sameSite: 'lax',
       path: '/api/auth',
-      maxAge: this.authService.getRefreshTokenTtlSeconds() * 1000,
+      ...(rememberMe && { maxAge: this.authService.getRefreshTokenTtlSeconds() * 1000 }),
     });
   }
 

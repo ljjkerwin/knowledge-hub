@@ -24,7 +24,6 @@ import {
   Users,
   LogOut,
   User,
-  Loader2,
   ChevronDown,
   Settings,
   Search,
@@ -84,12 +83,13 @@ const systemMenuItems: MenuItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, isAuthenticated, isLoading, logout } = useAuthStore();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const isAdmin = user?.roles.includes("ROLE_ADMIN");
   const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(true);
   const [systemMenuOpen, setSystemMenuOpen] = useState(true);
 
   const canViewMenuItem = (item: MenuItem) =>
+    !isAuthenticated ||
     isAdmin ||
     ((!item.roles || item.roles.some((role) => user?.roles.includes(role))) &&
       (!item.permissions ||
@@ -106,9 +106,12 @@ export function Sidebar() {
     (item) => pathname === item.href,
   );
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      router.replace("/login?logout=1");
+    }
   };
 
   return (
@@ -270,11 +273,6 @@ export function Sidebar() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        ) : isLoading ? (
-          <div className="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>恢复登录状态…</span>
-          </div>
         ) : (
           <Link
             href="/login"

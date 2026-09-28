@@ -32,10 +32,14 @@ export function getAccessToken() {
   return accessToken;
 }
 
-export function setAccessToken(token: string) {
+export function setAccessToken(token: string, persist = true) {
   accessToken = token;
   if (typeof window !== 'undefined') {
-    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+    if (persist) {
+      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+    } else {
+      window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    }
   }
 }
 
