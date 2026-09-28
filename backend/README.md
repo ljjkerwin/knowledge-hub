@@ -43,6 +43,22 @@ LANGFUSE_TRACING_ENABLED=true
 
 Set it to `false` (or remove it) to disable reporting again.
 
+## Shared chunks and optional OCR
+
+Publishing a document now sends one `document.ingest` task. It performs the
+shared chunk preparation once, stores the result in MongoDB's
+`document_chunks`, and uses that same chunk set for the vector and knowledge
+graph projections. OCR is disabled by default. To enable an OCR adapter for
+Markdown image URLs, configure an endpoint that accepts `{ imageUrl, documentId
+}` and returns either `{ text }` or `{ data: { text } }`:
+
+```bash
+OCR_ENABLED=true
+OCR_ENDPOINT=https://your-ocr-service.example/recognize
+```
+
+VLM is intentionally not part of this pipeline.
+
 ## RBAC authorization cache
 
 JWT only contains the user ID. Protected requests resolve the current authorization

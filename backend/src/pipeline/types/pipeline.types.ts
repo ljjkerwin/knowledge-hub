@@ -15,6 +15,8 @@ export interface DocumentChunk {
   documentTitle: string;
   /** 实际送去嵌入 / 抽取的文本（通常含章节标题前缀） */
   content: string;
+  /** 表格 Chunk 的原始 Markdown；不参与检索，命中后供生成模型读取。 */
+  tableContent?: string;
   /** 所属 Markdown 标题；无标题章节为 null */
   heading?: string | null;
   /** 从 0 开始的块序号 */
@@ -62,6 +64,8 @@ export interface PipelineDocument {
   id: string;
   title: string;
   content: string;
+  /** Mongo document_content.version，用于共享 Chunk 的幂等重建。 */
+  contentVersion: number;
   summary?: string | null;
   categoryId?: string | null;
   authorId?: string | null;

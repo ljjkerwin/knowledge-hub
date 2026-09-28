@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import neo4j, { Driver, Session } from 'neo4j-driver';
 import { ChunkingService } from './chunking.service';
 import { ExtractionService } from './extraction.service';
-import { PipelineDocument } from './types/pipeline.types';
+import { DocumentChunk, PipelineDocument } from './types/pipeline.types';
 
 /**
  * KG 知识图谱构建
@@ -72,7 +72,10 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
    * 为单篇文档全量重建图谱。
    * @returns 写入的实体数量（近似）
    */
-  async buildForDocument(doc: PipelineDocument): Promise<number> {
+  async buildForDocument(
+    doc: PipelineDocument,
+    preparedChunks?: DocumentChunk[],
+  ): Promise<number> {
     if (!this.driver) {
       this.logger.warn(`跳过 KG 构建（Neo4j 不可用）：documentId=${doc.id}`);
       return 0;
@@ -110,22 +113,24 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
         },
       );
 
-      // ② 复用 RAG 同款分块，保证图谱粒度与向量块一致
-      const chunks = await this.chunkingService.chunk({
-        content: doc.content,
-        documentId: doc.id,
-        documentTitle: doc.title,
-        categoryId: doc.categoryId,
-        authorId: doc.authorId,
-        teamId: doc.teamId,
-        docStatus: doc.status,
-        publishTime:
-          doc.publishTime instanceof Date
-            ? doc.publishTime.toISOString()
-            : doc.publishTime
-              ? new Date(doc.publishTime).toISOString()
-              : null,
-      });
+      // ② 优先使用共享分块；保留回退仅兼容历史全量建图入口。
+      const chunks =
+        preparedChunks ??
+        (await this.chunkingService.chunk({
+          content: doc.content,
+          documentId: doc.id,
+          documentTitle: doc.title,
+          categoryId: doc.categoryId,
+          authorId: doc.authorId,
+          teamId: doc.teamId,
+          docStatus: doc.status,
+          publishTime:
+            doc.publishTime instanceof Date
+              ? doc.publishTime.toISOString()
+              : doc.publishTime
+                ? new Date(doc.publishTime).toISOString()
+                : null,
+        }));
 
       let totalEntities = 0;
       for (const chunk of chunks) {
@@ -189,10 +194,13 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 批量建图：单篇失败只记日志 */
-  async buildBatch(docs: PipelineDocument[]) {
+  async buildBatch(
+    docs: PipelineDocument[],
+    chunksByDocumentId?: Map<string, DocumentChunk[]>,
+  ) {
     for (const doc of docs) {
       try {
-        await this.buildForDocument(doc);
+        await this.buildForDocument(doc, chunksByDocumentId?.get(doc.id));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.error(`KG 构建失败：documentId=${doc.id}, ${message}`);

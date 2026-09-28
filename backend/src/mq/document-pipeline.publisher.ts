@@ -11,18 +11,21 @@ import {
   SEARCH_INDEX_EXCHANGE,
   SEARCH_RK_DELETE,
   SEARCH_RK_INDEX,
+  DOCUMENT_INGEST_EXCHANGE,
+  DOCUMENT_INGEST_RK,
 } from './mq.constants';
 import {
   KgBuildMessage,
   ReindexMessage,
   SearchIndexMessage,
+  DocumentIngestMessage,
 } from './messages/pipeline.messages';
 import { RabbitMqService } from './rabbitmq.service';
 
 /**
  * 文档发布后的知识管线「生产者」
  *
- * <p>触发：RAG 向量化 + Search 全文索引 + KG 建图。</p>
+ * <p>触发：统一解析/按需 OCR/共享分块 + Search 全文索引。</p>
  * <p>约定：投递失败只打日志，<b>不回滚</b>文档已发布状态。</p>
  */
 @Injectable()
@@ -32,26 +35,40 @@ export class DocumentPipelinePublisher {
   constructor(private readonly rabbit: RabbitMqService) {}
 
   /**
-   * 发布成功后调用：并行投递 RAG / Search / KG。
+   * 发布成功后调用：只投递一次统一分块任务；该任务内部投影至 RAG 与 KG。
    */
   async afterPublish(document: DocumentEntity) {
     await Promise.all([
-      // es？
-      this.triggerRagReindex(document.id),
-      // es
+      this.triggerDocumentIngest('UPSERT', document.id),
       this.triggerSearchIndex(document.id),
-      // kg
-      this.triggerKgBuild(document.id),
     ]);
   }
 
   /** 归档/删除后：通知 RAG / Search / KG 按文档 ID 清理 */
   async afterUnpublish(documentId: string) {
     await Promise.all([
-      this.triggerRagDelete(documentId),
+      this.triggerDocumentIngest('DELETE', documentId),
       this.triggerSearchDelete(documentId),
-      this.triggerKgDelete(documentId),
     ]);
+  }
+
+  private async triggerDocumentIngest(
+    type: 'UPSERT' | 'DELETE',
+    documentId: string,
+  ) {
+    const message: DocumentIngestMessage = {
+      taskId: randomUUID(),
+      type,
+      documentId,
+    };
+    const ok = await this.rabbit.publish(
+      DOCUMENT_INGEST_EXCHANGE,
+      DOCUMENT_INGEST_RK,
+      message,
+    );
+    this.logger.log(
+      `统一文档录入${ok ? '已投递' : '投递失败'}：type=${type}, documentId=${documentId}, taskId=${message.taskId}`,
+    );
   }
 
   /** RAG：按文档 ID 重建向量块 */

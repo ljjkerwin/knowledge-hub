@@ -15,6 +15,9 @@ import {
   KG_GRAPH_QUEUE,
   KG_RK_BUILD_BY_IDS,
   KG_RK_DELETE,
+  DOCUMENT_INGEST_EXCHANGE,
+  DOCUMENT_INGEST_QUEUE,
+  DOCUMENT_INGEST_RK,
   RAG_REINDEX_EXCHANGE,
   RAG_REINDEX_QUEUE,
   RAG_RK_BY_IDS,
@@ -170,6 +173,15 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async assertTopology(ch: ConfirmChannel) {
+    await ch.assertExchange(DOCUMENT_INGEST_EXCHANGE, 'topic', {
+      durable: true,
+    });
+    await ch.assertQueue(DOCUMENT_INGEST_QUEUE, { durable: true });
+    await ch.bindQueue(
+      DOCUMENT_INGEST_QUEUE,
+      DOCUMENT_INGEST_EXCHANGE,
+      DOCUMENT_INGEST_RK,
+    );
     await ch.assertExchange(RAG_REINDEX_EXCHANGE, 'topic', { durable: true });
     await ch.assertQueue(RAG_REINDEX_QUEUE, { durable: true });
     await ch.bindQueue(RAG_REINDEX_QUEUE, RAG_REINDEX_EXCHANGE, RAG_RK_BY_IDS);

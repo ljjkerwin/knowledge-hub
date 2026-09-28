@@ -3,6 +3,7 @@ import { ConsumeMessage } from 'amqplib';
 import { PipelineOrchestrator } from '../pipeline/pipeline.orchestrator';
 import {
   KG_GRAPH_QUEUE,
+  DOCUMENT_INGEST_QUEUE,
   RAG_REINDEX_QUEUE,
   SEARCH_INDEX_QUEUE,
 } from './mq.constants';
@@ -10,6 +11,7 @@ import {
   KgBuildMessage,
   ReindexMessage,
   SearchIndexMessage,
+  DocumentIngestMessage,
 } from './messages/pipeline.messages';
 import { RabbitMqService } from './rabbitmq.service';
 
@@ -35,6 +37,18 @@ export class DocumentPipelineConsumer {
       this.handleSearch(msg),
     );
     this.rabbit.registerHandler(KG_GRAPH_QUEUE, (msg) => this.handleKg(msg));
+    this.rabbit.registerHandler(DOCUMENT_INGEST_QUEUE, (msg) =>
+      this.handleDocumentIngest(msg),
+    );
+  }
+
+  /** 统一入口：按需 OCR 与分块仅做一次，随后投影到向量索引和知识图谱。 */
+  private async handleDocumentIngest(msg: ConsumeMessage) {
+    const body = this.parseJson<DocumentIngestMessage>(msg);
+    this.logger.log(
+      `[Ingest] type=${body.type}, taskId=${body.taskId}, documentId=${body.documentId}`,
+    );
+    await this.orchestrator.handleSharedIngest(body.type, body.documentId);
   }
 
   /** RAG：分块 → 向量化 → ES kh_chunk（dense_vector） */

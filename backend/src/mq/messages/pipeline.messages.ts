@@ -25,3 +25,10 @@ export interface KgBuildMessage {
   type: KgBuildType;
   documentIds?: string[];
 }
+
+/** 发布/下架触发一次统一解析、按需 OCR 与共享分块。 */
+export interface DocumentIngestMessage {
+  taskId: string;
+  type: 'UPSERT' | 'DELETE';
+  documentId: string;
+}

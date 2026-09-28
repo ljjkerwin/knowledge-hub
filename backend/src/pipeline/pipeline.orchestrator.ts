@@ -17,6 +17,7 @@ import { GraphBuildService } from './graph-build.service';
 import { SearchIndexService } from './search-index.service';
 import { VectorIndexService } from './vector-index.service';
 import { PipelineDocument } from './types/pipeline.types';
+import { ChunkStoreService } from './chunk-store.service';
 
 /**
  * 发布后知识管线编排器
@@ -42,6 +43,7 @@ export class PipelineOrchestrator {
     private readonly vectorIndexService: VectorIndexService,
     private readonly searchIndexService: SearchIndexService,
     private readonly graphBuildService: GraphBuildService,
+    private readonly chunkStore: ChunkStoreService,
   ) {}
 
   /**
@@ -141,16 +143,7 @@ export class PipelineOrchestrator {
     // 先清旧块，避免重复发布时脏数据残留
     await this.vectorIndexService.deleteByDocId(doc.id);
 
-    const chunks = await this.chunkingService.chunk({
-      content: doc.content,
-      documentId: doc.id,
-      documentTitle: doc.title,
-      categoryId: doc.categoryId,
-      authorId: doc.authorId,
-      teamId: doc.teamId,
-      docStatus: doc.status,
-      publishTime: this.toIsoDate(doc.publishTime),
-    });
+    const chunks = await this.chunkStore.rebuild(doc);
 
     if (!chunks.length) return;
 
@@ -165,6 +158,48 @@ export class PipelineOrchestrator {
     this.logger.log(
       `RAG 索引完成：documentId=${doc.id}, chunks=${chunks.length}`,
     );
+  }
+
+  /**
+   * 统一录入：OCR（按需）与分块只执行一次，随后将同一批 Chunk 投影到 RAG 和 KG。
+   * 此方法由新的 ingest 消费者调用；旧的 RAG/KG 入口仍保留作历史任务兼容。
+   */
+  async handleSharedIngest(type: 'UPSERT' | 'DELETE', documentId: string) {
+    if (type === 'DELETE') {
+      await Promise.all([
+        this.vectorIndexService.deleteByDocId(documentId),
+        this.graphBuildService.deleteForDocument(documentId),
+        this.chunkStore.deleteByDocumentId(documentId),
+      ]);
+      return;
+    }
+    const [doc] = await this.loadDocumentsByIds([documentId]);
+    if (!doc || doc.status !== DocumentStatus.Published) {
+      await this.handleSharedIngest('DELETE', documentId);
+      return;
+    }
+    if (!doc.content.trim()) {
+      await this.handleSharedIngest('DELETE', documentId);
+      return;
+    }
+    // 先清投影，再生成一次共享 Chunk。任一投影失败会由 MQ 重试；Chunk 事实层可复用。
+    await this.vectorIndexService.deleteByDocId(documentId);
+    const chunks = await this.chunkStore.rebuild(doc);
+    await this.embeddingAndIndex(chunks);
+    await this.graphBuildService.buildForDocument(doc, chunks);
+  }
+
+  private async embeddingAndIndex(
+    chunks: import('./types/pipeline.types').DocumentChunk[],
+  ) {
+    if (!chunks.length) return;
+    const embeddings = await this.embeddingService.embedBatch(
+      chunks.map((chunk) => chunk.content),
+    );
+    chunks.forEach((chunk, index) => {
+      chunk.embedding = embeddings[index];
+    });
+    await this.vectorIndexService.indexChunks(chunks);
   }
 
   /** ES date 字段需要 ISO-8601；Date#toString() 会被拒绝 */
@@ -188,7 +223,13 @@ export class PipelineOrchestrator {
       const contentDoc = await this.contentModel
         .findOne({ _id: doc.contentId, deleted: false })
         .lean();
-      result.push(this.toPipelineDoc(doc, contentDoc?.content ?? ''));
+      result.push(
+        this.toPipelineDoc(
+          doc,
+          contentDoc?.content ?? '',
+          contentDoc?.version ?? 1,
+        ),
+      );
     }
     return result;
   }
@@ -203,7 +244,13 @@ export class PipelineOrchestrator {
       const contentDoc = await this.contentModel
         .findOne({ _id: doc.contentId, deleted: false })
         .lean();
-      result.push(this.toPipelineDoc(doc, contentDoc?.content ?? ''));
+      result.push(
+        this.toPipelineDoc(
+          doc,
+          contentDoc?.content ?? '',
+          contentDoc?.version ?? 1,
+        ),
+      );
     }
     return result;
   }
@@ -212,11 +259,13 @@ export class PipelineOrchestrator {
   private toPipelineDoc(
     doc: DocumentEntity,
     content: string,
+    contentVersion: number,
   ): PipelineDocument {
     return {
       id: doc.id,
       title: doc.title,
       content,
+      contentVersion,
       summary: doc.summary,
       categoryId: doc.categoryId,
       authorId: doc.authorId,
