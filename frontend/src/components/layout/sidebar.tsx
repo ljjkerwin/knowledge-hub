@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -24,6 +25,8 @@ import {
   LogOut,
   User,
   Loader2,
+  ChevronDown,
+  Settings,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -49,30 +52,13 @@ const menuItems = [
     icon: ClipboardCheck,
     permissions: ['audit:page'],
   },
-  {
-    title: '权限管理',
-    href: '/permissions',
-    icon: KeyRound,
-    roles: ['ROLE_ADMIN'],
-  },
-  {
-    title: '角色管理',
-    href: '/roles',
-    icon: Shield,
-    roles: ['ROLE_ADMIN'],
-  },
-  {
-    title: '用户管理',
-    href: '/users',
-    icon: Users,
-    roles: ['ROLE_ADMIN'],
-  },
-  {
-    title: '团队管理',
-    href: '/teams',
-    icon: Building2,
-    roles: ['ROLE_ADMIN'],
-  },
+];
+
+const systemMenuItems = [
+  { title: '权限管理', href: '/permissions', icon: KeyRound, roles: ['ROLE_ADMIN'] },
+  { title: '角色管理', href: '/roles', icon: Shield, roles: ['ROLE_ADMIN'] },
+  { title: '用户管理', href: '/users', icon: Users, roles: ['ROLE_ADMIN'] },
+  { title: '团队管理', href: '/teams', icon: Building2, roles: ['ROLE_ADMIN'] },
 ];
 
 export function Sidebar() {
@@ -80,6 +66,16 @@ export function Sidebar() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout } = useAuthStore();
   const isAdmin = user?.roles.includes('ROLE_ADMIN');
+  const [systemMenuOpen, setSystemMenuOpen] = useState(true);
+
+  const canViewMenuItem = (item: (typeof menuItems)[number] | (typeof systemMenuItems)[number]) =>
+    isAdmin || (
+      (!item.roles || item.roles.some((role) => user?.roles.includes(role))) &&
+      (!item.permissions || item.permissions.some((permission) => user?.permissions.includes(permission)))
+    );
+  const visibleMenuItems = menuItems.filter(canViewMenuItem);
+  const visibleSystemMenuItems = systemMenuItems.filter(canViewMenuItem);
+  const isSystemMenuActive = visibleSystemMenuItems.some((item) => pathname === item.href);
 
   const handleLogout = () => {
     logout();
@@ -99,10 +95,7 @@ export function Sidebar() {
       {/* Menu */}
       <ScrollArea className="flex-1 py-4">
         <nav className="space-y-1 px-2">
-          {menuItems.filter((item) => isAdmin || (
-            (!item.roles || item.roles.some((role) => user?.roles.includes(role))) &&
-            (!item.permissions || item.permissions.some((permission) => user?.permissions.includes(permission)))
-          )).map((item) => {
+          {visibleMenuItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
 
@@ -121,6 +114,51 @@ export function Sidebar() {
               </Link>
             );
           })}
+          {visibleSystemMenuItems.length > 0 && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setSystemMenuOpen((open) => !open)}
+                aria-expanded={systemMenuOpen || isSystemMenuActive}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  isSystemMenuActive
+                    ? 'text-primary'
+                    : 'hover:bg-accent hover:text-accent-foreground'
+                }`}
+              >
+                <Settings className="h-5 w-5 shrink-0" />
+                <span className="flex-1 text-left">系统管理</span>
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${
+                    systemMenuOpen || isSystemMenuActive ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+              {(systemMenuOpen || isSystemMenuActive) && (
+                <div className="mt-1 space-y-1 border-l border-border/70 ml-5 pl-2">
+                  {visibleSystemMenuItems.map((item) => {
+                    const isActive = pathname === item.href;
+                    const Icon = item.icon;
+
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? 'bg-primary text-primary-foreground'
+                            : 'hover:bg-accent hover:text-accent-foreground'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span>{item.title}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
       </ScrollArea>
 
