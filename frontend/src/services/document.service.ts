@@ -1,11 +1,12 @@
-import { apiClient, API_BASE_URL } from '@/lib/api-client';
-import { getAccessToken } from '@/lib/access-token';
+import { apiClient, API_BASE_URL } from "@/lib/api-client";
+import { getAccessToken } from "@/lib/access-token";
 import {
   DocumentPayload,
   KnowledgeDocument,
+  FullTextSearchResult,
   PaginatedResponse,
   ReviewTask,
-} from '@/types/api.types';
+} from "@/types/api.types";
 
 export interface DocumentQuery {
   title?: string;
@@ -15,46 +16,84 @@ export interface DocumentQuery {
   pageSize?: number;
 }
 
+export interface FullTextSearchQuery {
+  keyword: string;
+  page?: number;
+  pageSize?: number;
+}
+
 const queryParams = (params: DocumentQuery) =>
   Object.fromEntries(
     Object.entries(params)
-      .filter(([, value]) => value !== undefined && value !== '')
+      .filter(([, value]) => value !== undefined && value !== "")
       .map(([key, value]) => [key, String(value)]),
   );
 
 export const documentService = {
   list: (params: DocumentQuery = {}) =>
-    apiClient.get<PaginatedResponse<KnowledgeDocument>>('/documents', queryParams(params)),
+    apiClient.get<PaginatedResponse<KnowledgeDocument>>(
+      "/documents",
+      queryParams(params),
+    ),
   get: (id: string) => apiClient.get<KnowledgeDocument>(`/documents/${id}`),
-  create: (data: DocumentPayload) => apiClient.post<KnowledgeDocument>('/documents', data),
-  update: (id: string, data: DocumentPayload) => apiClient.patch<KnowledgeDocument>(`/documents/${id}`, data),
-  remove: (id: string) => apiClient.delete<{ id: string; deleted: boolean }>(`/documents/${id}`),
-  publish: (id: string) => apiClient.put<KnowledgeDocument>(`/documents/${id}/publish`),
-  archive: (id: string) => apiClient.put<KnowledgeDocument>(`/documents/${id}/archive`),
-  saveDraft: (id: string) => apiClient.put<KnowledgeDocument>(`/documents/${id}/save-draft`),
-  submitReview: (id: string) => apiClient.post<KnowledgeDocument>(`/documents/${id}/reviews/submit`),
-  reviewHistory: (id: string) => apiClient.get<ReviewTask[]>(`/documents/${id}/reviews/history`),
-  currentReview: (id: string) => apiClient.get<ReviewTask | null>(`/documents/${id}/reviews/current`),
-  tasks: (status = 'pending', page = 1, pageSize = 20) =>
-    apiClient.get<PaginatedResponse<ReviewTask>>('/documents/reviews/tasks', {
+  search: (params: FullTextSearchQuery) =>
+    apiClient.get<PaginatedResponse<FullTextSearchResult>>(
+      "/documents/search",
+      queryParams(params),
+    ),
+  create: (data: DocumentPayload) =>
+    apiClient.post<KnowledgeDocument>("/documents", data),
+  update: (id: string, data: DocumentPayload) =>
+    apiClient.patch<KnowledgeDocument>(`/documents/${id}`, data),
+  remove: (id: string) =>
+    apiClient.delete<{ id: string; deleted: boolean }>(`/documents/${id}`),
+  publish: (id: string) =>
+    apiClient.put<KnowledgeDocument>(`/documents/${id}/publish`),
+  archive: (id: string) =>
+    apiClient.put<KnowledgeDocument>(`/documents/${id}/archive`),
+  saveDraft: (id: string) =>
+    apiClient.put<KnowledgeDocument>(`/documents/${id}/save-draft`),
+  submitReview: (id: string) =>
+    apiClient.post<KnowledgeDocument>(`/documents/${id}/reviews/submit`),
+  reviewHistory: (id: string) =>
+    apiClient.get<ReviewTask[]>(`/documents/${id}/reviews/history`),
+  currentReview: (id: string) =>
+    apiClient.get<ReviewTask | null>(`/documents/${id}/reviews/current`),
+  tasks: (status = "pending", page = 1, pageSize = 20) =>
+    apiClient.get<PaginatedResponse<ReviewTask>>("/documents/reviews/tasks", {
       status,
       page: String(page),
       pageSize: String(pageSize),
     }),
-  pendingCount: () => apiClient.get<number>('/documents/reviews/tasks/pending-count'),
+  pendingCount: () =>
+    apiClient.get<number>("/documents/reviews/tasks/pending-count"),
   approve: (taskId: string, reviewComment?: string) =>
-    apiClient.post<KnowledgeDocument>(`/documents/reviews/tasks/${taskId}/approve`, { reviewComment }),
+    apiClient.post<KnowledgeDocument>(
+      `/documents/reviews/tasks/${taskId}/approve`,
+      { reviewComment },
+    ),
   reject: (taskId: string, reviewComment: string) =>
-    apiClient.post<KnowledgeDocument>(`/documents/reviews/tasks/${taskId}/reject`, { reviewComment }),
+    apiClient.post<KnowledgeDocument>(
+      `/documents/reviews/tasks/${taskId}/reject`,
+      { reviewComment },
+    ),
   async upload(file: File, metadata: Record<string, string> = {}) {
     const formData = new FormData();
-    formData.append('file', file);
-    Object.entries(metadata).forEach(([key, value]) => value && formData.append(key, value));
+    formData.append("file", file);
+    Object.entries(metadata).forEach(
+      ([key, value]) => value && formData.append(key, value),
+    );
     const token = getAccessToken();
     const response = await fetch(`${API_BASE_URL}/documents/upload/parse`, {
-      method: 'POST', body: formData, headers: token ? { Authorization: `Bearer ${token}` } : undefined, credentials: 'include',
+      method: "POST",
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      credentials: "include",
     });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message || '文件上传失败');
+    if (!response.ok)
+      throw new Error(
+        (await response.json().catch(() => ({}))).message || "文件上传失败",
+      );
     return response.json() as Promise<{ documentId: string }>;
   },
 };

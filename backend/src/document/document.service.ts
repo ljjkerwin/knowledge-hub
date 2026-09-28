@@ -128,7 +128,7 @@ export class DocumentService {
       // 仅 Published 才建索引。需审时创建即 Published 已在上方拒绝，
       // 能走到这里的 Published 一定是免审；草稿不投 MQ。
       if (status === DocumentStatus.Published) {
-        await this.safePublish(saved, dto.content);
+        await this.safePublish(saved);
       }
 
       return { ...saved, content: dto.content };
@@ -184,6 +184,19 @@ export class DocumentService {
       page,
       pageSize,
     };
+  }
+
+  /** 向 Search 队列投递全部已发布文档，用于 ES 全文索引全量重建。 */
+  async rebuildFullTextIndex() {
+    const documents = await this.em.find(DocumentEntity, {
+      where: { deleted: false, status: DocumentStatus.Published },
+      select: { id: true },
+    });
+    for (const document of documents) {
+      await this.pipelinePublisher.triggerSearchIndex(document.id);
+    }
+    this.logger.log(`全文索引重建任务已投递：count=${documents.length}`);
+    return { queued: documents.length };
   }
 
   /**
@@ -333,7 +346,6 @@ export class DocumentService {
       oldStatus,
       saved.status,
       contentChanged,
-      finalContent,
     );
 
     return { ...saved, content: finalContent };
@@ -405,7 +417,7 @@ export class DocumentService {
     // 获取md内容
     const content = await this.loadContent(saved.contentId);
     // mq投递
-    await this.safePublish(saved, content);
+    await this.safePublish(saved);
 
     this.logger.log(`文档发布成功：documentId=${id}`);
     return { ...saved, content };
@@ -586,7 +598,6 @@ export class DocumentService {
     oldStatus: DocumentStatus,
     newStatus: DocumentStatus,
     contentChanged: boolean,
-    content: string,
   ) {
     const wasPublished = oldStatus === DocumentStatus.Published;
     const isPublished = newStatus === DocumentStatus.Published;
@@ -598,7 +609,7 @@ export class DocumentService {
 
     if (isPublished && contentChanged) {
       if (!this.reviewService.isRequireApproval()) {
-        await this.safePublish(doc, content);
+        await this.safePublish(doc);
       }
     }
   }
@@ -611,10 +622,10 @@ export class DocumentService {
     return contentDoc?.content ?? '';
   }
 
-  /** 投递 MQ：RAG 分块向量 + 全文搜索 + KG 建图（失败不回滚文档状态） */
-  private async safePublish(doc: DocumentEntity, content: string) {
+  /** 投递 MQ：仅传 documentId，由消费者加载正文（失败不回滚文档状态） */
+  private async safePublish(doc: DocumentEntity) {
     try {
-      await this.pipelinePublisher.afterPublish(doc, content);
+      await this.pipelinePublisher.afterPublish(doc);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(

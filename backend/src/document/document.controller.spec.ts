@@ -1,6 +1,7 @@
 import { DocumentController } from './document.controller';
 import { DocumentService } from './document.service';
 import { DocumentReviewService } from './document-review.service';
+import { SearchIndexService } from '../pipeline/search-index.service';
 
 describe('DocumentController', () => {
   const documentService = {
@@ -8,11 +9,13 @@ describe('DocumentController', () => {
     uploadAndCreateDocument: jest.fn(),
   };
   const reviewService = {};
+  const searchIndexService = {};
   const controller = new DocumentController(
     documentService as unknown as DocumentService,
     reviewService as DocumentReviewService,
+    searchIndexService as SearchIndexService,
   );
-  const request = { user: { id: 'user-123', role: 0 } };
+  const request = { user: { id: 'user-123', username: 'tester', roles: [] } };
 
   beforeEach(() => jest.clearAllMocks());
 

@@ -77,27 +77,25 @@ export class PipelineOrchestrator {
 
   /**
    * 处理 Search 索引消息。
-   * INDEX：消息内已带文档快照，直接写入 ES kh_document。
+   * INDEX：按文档 ID 加载完整正文后写入 ES kh_document。
    * DELETE：按 documentId 删除。
    */
-  async handleSearchIndex(
-    type: string,
-    documentId: string,
-    document?: Record<string, unknown>,
-  ) {
+  async handleSearchIndex(type: string, documentId: string) {
     if (type === 'DELETE') {
       await this.searchIndexService.deleteDocument(documentId);
       return;
     }
 
     if (type === 'INDEX') {
-      if (!document) {
-        this.logger.warn(
-          `Search INDEX 消息缺少 document 快照：documentId=${documentId}`,
-        );
+      const [document] = await this.loadDocumentsByIds([documentId]);
+      if (!document || document.status !== DocumentStatus.Published) {
+        // 发布后的旧消息可能晚于下架消息到达，避免重新写入不可见文档。
+        await this.searchIndexService.deleteDocument(documentId);
         return;
       }
-      await this.searchIndexService.indexDocument(document);
+      await this.searchIndexService.indexDocument(
+        this.toSearchIndexDocument(document),
+      );
       return;
     }
 
@@ -229,9 +227,34 @@ export class PipelineOrchestrator {
       viewCount: doc.viewCount,
       likeCount: doc.likeCount,
       commentCount: doc.commentCount,
+      createBy: doc.createBy,
       publishTime: doc.publishTime,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+    };
+  }
+
+  /** 将完整的管线文档转换为 ES 全文检索记录。 */
+  private toSearchIndexDocument(
+    doc: PipelineDocument,
+  ): Record<string, unknown> {
+    return {
+      id: doc.id,
+      title: doc.title,
+      summary: doc.summary ?? null,
+      content: doc.content,
+      categoryId: doc.categoryId ?? null,
+      tags: doc.tags ?? null,
+      status: doc.status,
+      isPublic: doc.isPublic ?? false,
+      viewCount: doc.viewCount ?? 0,
+      likeCount: doc.likeCount ?? 0,
+      commentCount: doc.commentCount ?? 0,
+      authorId: doc.authorId ?? null,
+      createBy: doc.createBy ?? null,
+      publishTime: this.toIsoDate(doc.publishTime),
+      createdAt: this.toIsoDate(doc.createdAt),
+      updatedAt: this.toIsoDate(doc.updatedAt),
     };
   }
 }

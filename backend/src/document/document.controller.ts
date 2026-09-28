@@ -21,9 +21,10 @@ import { UpdateDocumentDto } from './dto/update-document.dto';
 import { QueryDocumentDto } from './dto/query-document.dto';
 import { UploadParseDto } from './dto/upload-parse.dto';
 import { QueryReviewTasksDto, ReviewDecisionDto } from './dto/review.dto';
-import { Roles } from '../auth/roles.decorator';
+import { SearchDocumentDto } from './dto/search-document.dto';
 import { RoleCode } from '../user/entities/role.entity';
 import { Permissions } from '../auth/permissions.decorator';
+import { SearchIndexService } from '../pipeline/search-index.service';
 
 interface AuthenticatedRequest {
   user: {
@@ -39,6 +40,7 @@ export class DocumentController {
   constructor(
     private readonly documentService: DocumentService,
     private readonly reviewService: DocumentReviewService,
+    private readonly searchIndexService: SearchIndexService,
   ) {}
 
   /** 创建文档 */
@@ -83,6 +85,24 @@ export class DocumentController {
   @Permissions('document:review')
   pendingReviewCount() {
     return this.reviewService.getPendingCount();
+  }
+
+  /** 已发布文档全文关键词搜索（须在 @Get(':id') 之前注册） */
+  @Get('search')
+  search(@Query() query: SearchDocumentDto, @Req() req: AuthenticatedRequest) {
+    return this.searchIndexService.search({
+      ...query,
+      userId: req.user.id,
+      isAdmin: req.user.roles.includes(RoleCode.Admin),
+    });
+  }
+
+  /** 全量补建 ES 全文索引；消息只携带 documentId。 */
+  @Post('search/rebuild')
+  @Permissions('document:publish')
+  async rebuildFullTextIndex() {
+    await this.searchIndexService.recreateIndex();
+    return this.documentService.rebuildFullTextIndex();
   }
 
   /** 分页查询文档列表（仅元数据） */

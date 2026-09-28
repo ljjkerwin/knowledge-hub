@@ -66,12 +66,13 @@ export interface PipelineDocument {
   categoryId?: string | null;
   authorId?: string | null;
   teamId?: string | null;
-  status: number;
+  status: import('../../document/document-status').DocumentStatus;
   tags?: string | null;
   isPublic?: boolean;
   viewCount?: number;
   likeCount?: number;
   commentCount?: number;
+  createBy?: string | null;
   publishTime?: Date | string | null;
   createdAt?: Date | string | null;
   updatedAt?: Date | string | null;

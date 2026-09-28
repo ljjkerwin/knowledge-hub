@@ -46,17 +46,13 @@ export class DocumentPipelineConsumer {
     await this.orchestrator.handleRagReindex(body.type, body.documentIds);
   }
 
-  /** Search：文档级关键词索引（Elasticsearch kh_document） */
+  /** Search：按文档 ID 加载完整正文，写入 Elasticsearch kh_document */
   private async handleSearch(msg: ConsumeMessage) {
     const body = this.parseJson<SearchIndexMessage>(msg);
     this.logger.log(
       `[Search] type=${body.type}, taskId=${body.taskId}, documentId=${body.documentId}`,
     );
-    await this.orchestrator.handleSearchIndex(
-      body.type,
-      body.documentId,
-      body.document,
-    );
+    await this.orchestrator.handleSearchIndex(body.type, body.documentId);
   }
 
   /** KG：分块 → 抽实体关系 → Neo4j */

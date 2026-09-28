@@ -198,8 +198,8 @@ function DocumentDetailPageContent({
           )}
         </div>
       </header>
-      <div className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[minmax(0,1fr)_250px]">
-        <article>
+      <div className="mx-auto grid max-w-6xl gap-8 px-8 py-10 lg:grid-cols-[minmax(0,1fr)_250px]">
+        <article className="min-w-0">
           <div className="mb-8 border-b pb-7">
             <h1 className="text-3xl font-bold tracking-tight">{doc.title}</h1>
             <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -230,10 +230,12 @@ function DocumentDetailPageContent({
               </p>
             </section>
           )}
-          <div className="prose prose-slate max-w-none dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {doc.content || ""}
-            </ReactMarkdown>
+          <div>
+            <div className="prose prose-slate max-w-none dark:prose-invert">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {doc.content || ""}
+              </ReactMarkdown>
+            </div>
           </div>
         </article>
         <aside className="h-fit rounded-xl border bg-card p-4">

@@ -9,6 +9,7 @@ import {
 } from './schemas/document-content.schema';
 import { FileParserService } from './parser/file-parser.service';
 import { AuthModule } from '../auth/auth.module';
+import { PipelineModule } from '../pipeline/pipeline.module';
 
 /**
  * 文档模块
@@ -18,6 +19,7 @@ import { AuthModule } from '../auth/auth.module';
 @Module({
   imports: [
     AuthModule,
+    PipelineModule,
     MongooseModule.forFeature([
       { name: DocumentContent.name, schema: DocumentContentSchema },
     ]),

@@ -1,17 +1,17 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import Link from "next/link";
+import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from "@/components/ui/dropdown-menu";
 import {
   MessageSquare,
   FileText,
@@ -27,59 +27,88 @@ import {
   Loader2,
   ChevronDown,
   Settings,
-} from 'lucide-react';
-import { useAuthStore } from '@/stores/auth.store';
+  Search,
+  LibraryBig,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { useAuthStore } from "@/stores/auth.store";
 
-const menuItems = [
+interface MenuItem {
+  title: string;
+  href: string;
+  icon: LucideIcon;
+  roles?: string[];
+  permissions?: string[];
+}
+
+const menuItems: MenuItem[] = [
   {
-    title: '智能问答',
-    href: '/chat',
+    title: "智能问答",
+    href: "/chat",
     icon: MessageSquare,
-  },
-  {
-    title: '知识管理',
-    href: '/documents',
-    icon: FileText,
-  },
-  {
-    title: '知识图谱',
-    href: '/knowledge-graph',
-    icon: Network,
-  },
-  {
-    title: '审核工作台',
-    href: '/documents/reviews',
-    icon: ClipboardCheck,
-    permissions: ['audit:page'],
   },
 ];
 
-const systemMenuItems = [
-  { title: '权限管理', href: '/permissions', icon: KeyRound, roles: ['ROLE_ADMIN'] },
-  { title: '角色管理', href: '/roles', icon: Shield, roles: ['ROLE_ADMIN'] },
-  { title: '用户管理', href: '/users', icon: Users, roles: ['ROLE_ADMIN'] },
-  { title: '团队管理', href: '/teams', icon: Building2, roles: ['ROLE_ADMIN'] },
+const knowledgeMenuItems: MenuItem[] = [
+  { title: "知识管理", href: "/documents", icon: FileText },
+  {
+    title: "全文搜索",
+    href: "/search",
+    icon: Search,
+  },
+  {
+    title: "知识图谱",
+    href: "/knowledge-graph",
+    icon: Network,
+  },
+  {
+    title: "审核工作台",
+    href: "/documents/reviews",
+    icon: ClipboardCheck,
+    permissions: ["audit:page"],
+  },
+];
+
+const systemMenuItems: MenuItem[] = [
+  {
+    title: "权限管理",
+    href: "/permissions",
+    icon: KeyRound,
+    roles: ["ROLE_ADMIN"],
+  },
+  { title: "角色管理", href: "/roles", icon: Shield, roles: ["ROLE_ADMIN"] },
+  { title: "用户管理", href: "/users", icon: Users, roles: ["ROLE_ADMIN"] },
+  { title: "团队管理", href: "/teams", icon: Building2, roles: ["ROLE_ADMIN"] },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout } = useAuthStore();
-  const isAdmin = user?.roles.includes('ROLE_ADMIN');
+  const isAdmin = user?.roles.includes("ROLE_ADMIN");
+  const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(true);
   const [systemMenuOpen, setSystemMenuOpen] = useState(true);
 
-  const canViewMenuItem = (item: (typeof menuItems)[number] | (typeof systemMenuItems)[number]) =>
-    isAdmin || (
-      (!item.roles || item.roles.some((role) => user?.roles.includes(role))) &&
-      (!item.permissions || item.permissions.some((permission) => user?.permissions.includes(permission)))
-    );
+  const canViewMenuItem = (item: MenuItem) =>
+    isAdmin ||
+    ((!item.roles || item.roles.some((role) => user?.roles.includes(role))) &&
+      (!item.permissions ||
+        item.permissions.some((permission) =>
+          user?.permissions.includes(permission),
+        )));
   const visibleMenuItems = menuItems.filter(canViewMenuItem);
+  const visibleKnowledgeMenuItems = knowledgeMenuItems.filter(canViewMenuItem);
   const visibleSystemMenuItems = systemMenuItems.filter(canViewMenuItem);
-  const isSystemMenuActive = visibleSystemMenuItems.some((item) => pathname === item.href);
+  const isKnowledgeMenuActive = visibleKnowledgeMenuItems.some(
+    (item) => pathname === item.href,
+  );
+  const isSystemMenuActive = visibleSystemMenuItems.some(
+    (item) => pathname === item.href,
+  );
 
   const handleLogout = () => {
     logout();
-    router.push('/login');
+    router.push("/login");
   };
 
   return (
@@ -105,8 +134,8 @@ export function Sidebar() {
                 href={item.href}
                 className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-accent hover:text-accent-foreground'
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-accent hover:text-accent-foreground"
                 }`}
               >
                 <Icon className="h-5 w-5 shrink-0" />
@@ -114,6 +143,53 @@ export function Sidebar() {
               </Link>
             );
           })}
+          {visibleKnowledgeMenuItems.length > 0 && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setKnowledgeMenuOpen((open) => !open)}
+                aria-expanded={knowledgeMenuOpen || isKnowledgeMenuActive}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  isKnowledgeMenuActive
+                    ? "text-primary"
+                    : "hover:bg-accent hover:text-accent-foreground"
+                }`}
+              >
+                <LibraryBig className="h-5 w-5 shrink-0" />
+                <span className="flex-1 text-left">知识库</span>
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${
+                    knowledgeMenuOpen || isKnowledgeMenuActive
+                      ? "rotate-180"
+                      : ""
+                  }`}
+                />
+              </button>
+              {(knowledgeMenuOpen || isKnowledgeMenuActive) && (
+                <div className="mt-1 ml-5 space-y-1 border-l border-border/70 pl-2">
+                  {visibleKnowledgeMenuItems.map((item) => {
+                    const isActive = pathname === item.href;
+                    const Icon = item.icon;
+
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? "bg-primary text-primary-foreground"
+                            : "hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span>{item.title}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {visibleSystemMenuItems.length > 0 && (
             <div className="pt-1">
               <button
@@ -122,15 +198,15 @@ export function Sidebar() {
                 aria-expanded={systemMenuOpen || isSystemMenuActive}
                 className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   isSystemMenuActive
-                    ? 'text-primary'
-                    : 'hover:bg-accent hover:text-accent-foreground'
+                    ? "text-primary"
+                    : "hover:bg-accent hover:text-accent-foreground"
                 }`}
               >
                 <Settings className="h-5 w-5 shrink-0" />
                 <span className="flex-1 text-left">系统管理</span>
                 <ChevronDown
                   className={`h-4 w-4 transition-transform ${
-                    systemMenuOpen || isSystemMenuActive ? 'rotate-180' : ''
+                    systemMenuOpen || isSystemMenuActive ? "rotate-180" : ""
                   }`}
                 />
               </button>
@@ -146,8 +222,8 @@ export function Sidebar() {
                         href={item.href}
                         className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                           isActive
-                            ? 'bg-primary text-primary-foreground'
-                            : 'hover:bg-accent hover:text-accent-foreground'
+                            ? "bg-primary text-primary-foreground"
+                            : "hover:bg-accent hover:text-accent-foreground"
                         }`}
                       >
                         <Icon className="h-4 w-4 shrink-0" />

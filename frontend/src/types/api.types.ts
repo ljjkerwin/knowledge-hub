@@ -74,6 +74,17 @@ export interface KnowledgeDocument {
   deleted: boolean;
 }
 
+export interface FullTextSearchResult {
+  id: string;
+  title: string;
+  summary?: string | null;
+  content?: string | null;
+  tags?: string | null;
+  publishTime?: string | null;
+  score?: number | null;
+  highlights: Record<string, string[]>;
+}
+
 export interface DocumentPayload {
   title?: string;
   content?: string;
@@ -211,7 +222,7 @@ export interface TeamMember {
   userId: string;
   username: string;
   nickname?: string | null;
-  memberRole: 'leader' | 'member';
+  memberRole: "leader" | "member";
 }
 
 export interface TeamNode {
