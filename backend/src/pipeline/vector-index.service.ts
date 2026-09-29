@@ -158,6 +158,8 @@ export class VectorIndexService implements OnModuleInit, OnModuleDestroy {
               type: 'text',
               fields: { keyword: { type: 'keyword' } },
             },
+            original_file_name: { type: 'keyword' },
+            file_size: { type: 'long' },
             content: { type: 'text' },
             // 表格原貌只存在 _source，命中后交给生成模型，不建立倒排索引。
             table_content: { type: 'text', index: false },
@@ -197,6 +199,8 @@ export class VectorIndexService implements OnModuleInit, OnModuleDestroy {
       chunk_id: chunk.chunkId,
       document_id: chunk.documentId,
       document_title: chunk.documentTitle,
+      original_file_name: chunk.originalFileName ?? null,
+      file_size: chunk.fileSize ?? null,
       content: chunk.content,
       table_content: chunk.tableContent ?? null,
       heading: chunk.heading ?? null,

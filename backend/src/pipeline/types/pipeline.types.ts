@@ -13,6 +13,8 @@ export interface DocumentChunk {
   chunkId: string;
   documentId: string;
   documentTitle: string;
+  originalFileName?: string | null;
+  fileSize?: string | null;
   /** 实际送去嵌入 / 抽取的文本（通常含章节标题前缀） */
   content: string;
   /** 表格 Chunk 的原始 Markdown；不参与检索，命中后供生成模型读取。 */
@@ -63,6 +65,8 @@ export interface ExtractionResult {
 export interface PipelineDocument {
   id: string;
   title: string;
+  originalFileName?: string | null;
+  fileSize?: string | null;
   content: string;
   /** Mongo document_content.version，用于共享 Chunk 的幂等重建。 */
   contentVersion: number;

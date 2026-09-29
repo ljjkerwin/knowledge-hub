@@ -3,6 +3,8 @@ export interface RetrievedChunk {
   chunkId: string;
   documentId: string;
   documentTitle: string;
+  originalFileName?: string | null;
+  fileSize?: string | null;
   content: string;
   heading: string | null;
   chunkIndex: number;
@@ -22,6 +24,8 @@ export interface Citation {
   chunkId: string;
   documentId: string;
   documentTitle: string;
+  originalFileName?: string | null;
+  fileSize?: string | null;
   chunkContent: string;
   heading: string | null;
   similarity: number;

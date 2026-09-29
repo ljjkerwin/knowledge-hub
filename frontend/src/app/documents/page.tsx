@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -22,6 +22,7 @@ export default function DocumentsPage() {
   const router = useRouter();
   const { query, items, total, loading, error, setQuery, setError, load, invalidate } =
     useDocumentStore();
+  const [uploadingFileName, setUploadingFileName] = useState<string>();
   const { title, status, page, pageSize } = query;
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 250);
@@ -35,11 +36,14 @@ export default function DocumentsPage() {
       return;
     }
     try {
+      setError("");
+      setUploadingFileName(file.name);
       const result = await documentService.upload(file);
       router.push(`/documents/${result.documentId}/edit`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "上传失败");
     } finally {
+      setUploadingFileName(undefined);
       event.target.value = "";
     }
   };
@@ -67,15 +71,17 @@ export default function DocumentsPage() {
           <Button
             nativeButton={false}
             variant="outline"
+            disabled={Boolean(uploadingFileName)}
             render={
               <label>
-                <FileUp />
-                上传文件
+                {uploadingFileName ? <Loader2 className="animate-spin" /> : <FileUp />}
+                {uploadingFileName ? "正在上传" : "上传文件"}
                 <input
                   className="hidden"
                   type="file"
                   accept=".pdf,.docx,.xlsx,.pptx,.txt,.md"
                   onChange={upload}
+                  disabled={Boolean(uploadingFileName)}
                 />
               </label>
             }
@@ -92,6 +98,21 @@ export default function DocumentsPage() {
         </div>
       </header>
       <main className="flex-1 p-6">
+        {uploadingFileName && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-5 flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Loader2 className="size-4 animate-spin" />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">正在上传并解析 {uploadingFileName}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">文件较大时可能需要一点时间，请勿关闭页面。</p>
+            </div>
+          </div>
+        )}
         <div className="mb-5 flex flex-wrap gap-3">
           <div className="relative min-w-60 flex-1">
             <Search className="absolute top-2.5 left-3 size-4 text-muted-foreground" />

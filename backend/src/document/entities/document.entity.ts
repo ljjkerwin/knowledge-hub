@@ -22,6 +22,19 @@ export class DocumentEntity {
   @Column({ type: 'varchar' })
   title: string;
 
+  /** 上传时的原始文件名（含扩展名）；手工创建的文档为空。 */
+  @Column({ name: 'original_file_name', type: 'varchar', nullable: true })
+  originalFileName?: string | null;
+
+  /** 上传原文件大小（字节）；手工创建的文档为空。 */
+  @Column({
+    name: 'file_size',
+    type: 'bigint',
+    nullable: true,
+    transformer: bigintTransformer,
+  })
+  fileSize?: string | null;
+
   /** MongoDB document_content._id */
   @Column({ name: 'content_id', type: 'varchar', unique: true })
   contentId: string;

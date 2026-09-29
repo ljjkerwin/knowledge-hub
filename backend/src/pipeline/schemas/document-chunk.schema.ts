@@ -22,6 +22,9 @@ export class StoredDocumentChunk {
   @Prop({ type: String, required: true })
   documentTitle: string;
 
+  @Prop({ type: String, default: null }) originalFileName?: string | null;
+  @Prop({ type: String, default: null }) fileSize?: string | null;
+
   /** 原正文块与 OCR 结果合成后的可检索文本。 */
   @Prop({ type: String, required: true })
   content: string;

@@ -85,6 +85,8 @@ export interface AguiRetrievalResultEvent extends AguiBaseEvent {
     chunkId: string;
     documentId: string;
     documentTitle: string;
+    originalFileName?: string | null;
+    fileSize?: string | null;
     content: string;
     similarity: number;
   }>;

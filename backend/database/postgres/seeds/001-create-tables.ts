@@ -14,6 +14,8 @@ const statements = [
     CREATE TABLE IF NOT EXISTS kh_document (
       id BIGINT PRIMARY KEY,
       title VARCHAR NOT NULL,
+      original_file_name VARCHAR,
+      file_size BIGINT,
       content_id VARCHAR NOT NULL UNIQUE,
       summary VARCHAR,
       category_id BIGINT,

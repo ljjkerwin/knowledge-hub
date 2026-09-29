@@ -120,6 +120,8 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
           content: doc.content,
           documentId: doc.id,
           documentTitle: doc.title,
+          originalFileName: doc.originalFileName,
+          fileSize: doc.fileSize,
           categoryId: doc.categoryId,
           authorId: doc.authorId,
           teamId: doc.teamId,

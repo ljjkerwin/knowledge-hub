@@ -149,6 +149,8 @@ export class AgentRunResultCollector {
           chunkId: chunk.chunkId,
           documentId: chunk.documentId,
           documentTitle: chunk.documentTitle,
+          originalFileName: chunk.originalFileName,
+          fileSize: chunk.fileSize,
           chunkContent: chunk.content,
           heading: null,
           similarity: chunk.similarity,

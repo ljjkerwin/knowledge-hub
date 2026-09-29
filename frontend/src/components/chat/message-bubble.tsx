@@ -1,9 +1,18 @@
 "use client";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Message, Citation } from "@/types/api.types";
-import { User, Bot, FileText } from "lucide-react";
+import {
+  User,
+  Bot,
+  File,
+  FileArchive,
+  FileCode2,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { MarkdownContent } from "./markdown-content";
 import Link from "next/link";
 
@@ -34,7 +43,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         </div>
 
         {message.citations && message.citations.length > 0 && (
-          <div className="flex flex-wrap gap-1">
+          <div className="flex w-full flex-wrap gap-2">
             {message.citations.map((citation, index) => (
               <CitationBadge
                 key={index}
@@ -56,20 +65,61 @@ function CitationBadge({
   citation: Citation;
   index: number;
 }) {
+  const fileName = citation.originalFileName || citation.documentTitle;
+  const { Icon, iconClassName } = getFilePresentation(fileName);
+
   return (
-    <Badge
-      variant="secondary"
-      className="cursor-pointer p-0 text-xs hover:bg-secondary/70"
-      title={`打开阅读页：${citation.documentTitle}`}
+    <Link
+      href={`/documents/${citation.documentId}?citation=${encodeURIComponent(citation.chunkId)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`打开阅读页：${fileName}`}
+      className="group flex min-w-0 max-w-full items-center gap-2 rounded-lg border bg-card px-2.5 py-2 text-left shadow-sm transition-colors hover:bg-muted/60"
     >
-      <Link
-        href={`/documents/${citation.documentId}?citation=${encodeURIComponent(citation.chunkId)}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center px-2 py-1"
-      >
-        <FileText className="mr-1 h-3 w-3" />[{index}] {citation.documentTitle}
-      </Link>
-    </Badge>
+      <span className={`flex size-8 shrink-0 items-center justify-center rounded-md ${iconClassName}`}>
+        <Icon className="size-4" aria-hidden="true" />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-xs font-medium text-foreground group-hover:text-primary">
+          [{index}] {fileName}
+        </span>
+        <span className="block text-[11px] text-muted-foreground">
+          {formatFileSize(citation.fileSize)}
+        </span>
+      </span>
+    </Link>
   );
+}
+
+function getFilePresentation(fileName: string): {
+  Icon: LucideIcon;
+  iconClassName: string;
+} {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+
+  if (["xlsx", "xls", "csv", "tsv"].includes(extension ?? "")) {
+    return { Icon: FileSpreadsheet, iconClassName: "bg-emerald-100 text-emerald-700" };
+  }
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(extension ?? "")) {
+    return { Icon: FileImage, iconClassName: "bg-violet-100 text-violet-700" };
+  }
+  if (["zip", "rar", "7z", "tar", "gz"].includes(extension ?? "")) {
+    return { Icon: FileArchive, iconClassName: "bg-amber-100 text-amber-700" };
+  }
+  if (["json", "xml", "html", "css", "js", "ts", "tsx", "jsx", "py", "java", "sql", "md"].includes(extension ?? "")) {
+    return { Icon: FileCode2, iconClassName: "bg-sky-100 text-sky-700" };
+  }
+  if (["pdf", "doc", "docx", "ppt", "pptx", "txt", "rtf"].includes(extension ?? "")) {
+    return { Icon: FileText, iconClassName: "bg-rose-100 text-rose-700" };
+  }
+  return { Icon: File, iconClassName: "bg-slate-100 text-slate-700" };
+}
+
+function formatFileSize(fileSize?: string | number | null): string {
+  const bytes = typeof fileSize === "string" ? Number(fileSize) : fileSize;
+  if (!Number.isFinite(bytes) || bytes == null || bytes < 0) return "大小未知";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }

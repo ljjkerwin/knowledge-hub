@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -8,24 +8,88 @@ import remarkGfm from "remark-gfm";
 import {
   Archive,
   ArrowLeft,
+  CalendarDays,
+  Clock3,
+  FileText,
+  FileType2,
+  FolderTree,
+  Globe2,
+  Hash,
+  LockKeyhole,
   Edit,
   Eye,
   Loader2,
+  MessageCircle,
+  Star,
   Send,
+  Tag,
   Upload,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { documentService } from "@/services/document.service";
 import { KnowledgeDocument, ReviewTask } from "@/types/api.types";
 import {
   DocumentStatusBadge,
-  statusLabel,
 } from "@/components/documents/document-status";
 import { useAuthStore } from "@/stores/auth.store";
 import { DocumentKnowledgeGraphDialog } from "@/components/documents/document-knowledge-graph-dialog";
 
 interface DocumentDetailClientProps {
   documentId: string;
+}
+
+function InfoRow({
+  icon: Icon,
+  label,
+  value,
+  valueIcon: ValueIcon,
+  mono = false,
+  title,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value?: string;
+  valueIcon?: LucideIcon;
+  mono?: boolean;
+  title?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[18px_minmax(0,1fr)] gap-x-2.5">
+      <Icon className="mt-0.5 size-4 text-muted-foreground" aria-hidden="true" />
+      <div className="min-w-0">
+        <dt className="text-xs text-muted-foreground">{label}</dt>
+        <dd
+          className={`mt-1 flex min-w-0 items-center gap-1 text-sm ${mono ? "truncate font-mono text-xs" : ""}`}
+          title={title}
+        >
+          {ValueIcon && <ValueIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
+          {children || <span className="truncate">{value}</span>}
+        </dd>
+      </div>
+    </div>
+  );
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString("zh-CN");
+}
+
+function fileExtension(fileName: string): string {
+  const extension = fileName.split(".").pop();
+  return extension && extension !== fileName ? extension.toUpperCase() : "未知";
+}
+
+function formatFileSize(fileSize?: string | null): string {
+  const bytes = Number(fileSize);
+  if (!Number.isFinite(bytes) || bytes < 0) return "未知";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
 export default function DocumentDetailClient({
@@ -198,7 +262,7 @@ function DocumentDetailPageContent({
           )}
         </div>
       </header>
-      <div className="mx-auto grid max-w-6xl gap-8 px-8 py-10 lg:grid-cols-[minmax(0,1fr)_250px]">
+      <div className="mx-auto grid max-w-6xl gap-8 px-8 py-10 lg:grid-cols-[minmax(0,1fr)_290px]">
         <article className="min-w-0">
           <div className="mb-8 border-b pb-7">
             <h1 className="text-3xl font-bold tracking-tight">{doc.title}</h1>
@@ -238,22 +302,61 @@ function DocumentDetailPageContent({
             </div>
           </div>
         </article>
-        <aside className="h-fit rounded-xl border bg-card p-4">
+        <aside className="h-fit rounded-xl border bg-card p-5">
           <h2 className="font-semibold">文档信息</h2>
-          <dl className="mt-4 space-y-3 text-sm">
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">状态</dt>
-              <dd>{statusLabel(doc.status)}</dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">字数</dt>
-              <dd>{doc.wordCount || (doc.content?.length ?? 0)}</dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">公开</dt>
-              <dd>{doc.isPublic ? "是" : "否"}</dd>
-            </div>
+          <dl className="mt-4 space-y-4 text-sm">
+            <InfoRow icon={FileText} label="状态">
+              <DocumentStatusBadge status={doc.status} />
+            </InfoRow>
+            <InfoRow icon={Hash} label="文档 ID" value={doc.id} mono />
+            <InfoRow
+              icon={FileText}
+              label="来源"
+              value={doc.originalFileName || "在线编辑文档"}
+              title={doc.originalFileName || undefined}
+            />
+            {doc.originalFileName && (
+              <>
+                <InfoRow icon={FileType2} label="文件格式" value={fileExtension(doc.originalFileName)} />
+                <InfoRow icon={Upload} label="文件大小" value={formatFileSize(doc.fileSize)} />
+              </>
+            )}
+            <InfoRow
+              icon={Globe2}
+              label="访问范围"
+              value={doc.isPublic ? "全员可见" : "仅受权限控制"}
+              valueIcon={doc.isPublic ? Globe2 : LockKeyhole}
+            />
+            <InfoRow
+              icon={FileText}
+              label="字数"
+              value={`${(doc.wordCount || doc.content?.length || 0).toLocaleString()} 字`}
+            />
+            <InfoRow icon={Eye} label="浏览次数" value={`${doc.viewCount ?? 0} 次`} />
+            <InfoRow icon={Star} label="收藏 / 点赞" value={`${doc.favouriteCount ?? 0} / ${doc.likeCount ?? 0}`} />
+            <InfoRow icon={MessageCircle} label="评论" value={`${doc.commentCount ?? 0} 条`} />
+            <InfoRow icon={CalendarDays} label="创建时间" value={formatDateTime(doc.createdAt)} />
+            <InfoRow icon={Clock3} label="最近更新" value={formatDateTime(doc.updatedAt)} />
+            {doc.publishTime && <InfoRow icon={Upload} label="发布时间" value={formatDateTime(doc.publishTime)} />}
+            {doc.categoryId && <InfoRow icon={FolderTree} label="分类 ID" value={doc.categoryId} mono />}
+            {doc.teamId && <InfoRow icon={FolderTree} label="团队 ID" value={doc.teamId} mono />}
           </dl>
+          {doc.tags && (
+            <section className="mt-5 border-t pt-4">
+              <h3 className="flex items-center gap-2 text-sm font-medium"><Tag className="size-4 text-muted-foreground" />标签</h3>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {doc.tags.split(",").map((tag) => tag.trim()).filter(Boolean).map((tag) => (
+                  <span key={tag} className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{tag}</span>
+                ))}
+              </div>
+            </section>
+          )}
+          {doc.remark && (
+            <section className="mt-5 border-t pt-4">
+              <h3 className="text-sm font-medium">备注</h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{doc.remark}</p>
+            </section>
+          )}
           {editable && history.length > 0 && (
             <>
               <h2 className="mt-7 border-t pt-5 font-semibold">审核记录</h2>

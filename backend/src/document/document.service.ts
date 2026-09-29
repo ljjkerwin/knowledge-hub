@@ -64,7 +64,11 @@ export class DocumentService {
    * 流程：生成雪花 ID → 写 Mongo 正文（拿 ObjectId）→ 写 Postgres 元数据
    * 若 Postgres 写入失败，回滚删除已写入的 Mongo 正文，避免脏数据
    */
-  async create(dto: CreateDocumentDto, authenticatedUserId?: string) {
+  async create(
+    dto: CreateDocumentDto,
+    authenticatedUserId?: string,
+    fileMetadata?: { originalFileName: string; fileSize: number },
+  ) {
     const requestedStatus = dto.status ?? DocumentStatus.Draft;
     // 创建时不允许直接设为 Archived / PendingReview
     if (
@@ -103,6 +107,8 @@ export class DocumentService {
       const doc = this.em.create(DocumentEntity, {
         id,
         title: dto.title,
+        originalFileName: fileMetadata?.originalFileName,
+        fileSize: fileMetadata ? String(fileMetadata.fileSize) : undefined,
         contentId,
         summary: dto.summary,
         categoryId: dto.categoryId,
@@ -567,6 +573,7 @@ export class DocumentService {
         status: DocumentStatus.Draft,
       },
       authenticatedUserId,
+      { originalFileName: originalFilename, fileSize: file.size },
     );
 
     const previewLen = Math.min(200, parsedContent.length);

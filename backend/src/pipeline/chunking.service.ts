@@ -72,6 +72,8 @@ export class ChunkingService {
     content: string;
     documentId: string;
     documentTitle: string;
+    originalFileName?: string | null;
+    fileSize?: string | null;
     categoryId?: string | null;
     authorId?: string | null;
     teamId?: string | null;
@@ -110,6 +112,8 @@ export class ChunkingService {
           .slice(0, 64),
         documentId,
         documentTitle,
+        originalFileName: params.originalFileName,
+        fileSize: params.fileSize,
         content: chunkContent,
         heading: currentHeading,
         chunkIndex: chunks.length,

@@ -50,6 +50,8 @@ export type DocumentStatus = 0 | 1 | 2 | 3;
 export interface KnowledgeDocument {
   id: string;
   title: string;
+  originalFileName?: string | null;
+  fileSize?: string | null;
   contentId?: string;
   content?: string;
   summary?: string;
@@ -121,6 +123,8 @@ export interface Citation {
   chunkId: string;
   documentId: string;
   documentTitle: string;
+  originalFileName?: string | null;
+  fileSize?: string | null;
   content: string;
   score: number;
   metadata?: Record<string, unknown>;

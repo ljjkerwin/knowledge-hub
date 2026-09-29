@@ -264,6 +264,8 @@ export class PipelineOrchestrator {
     return {
       id: doc.id,
       title: doc.title,
+      originalFileName: doc.originalFileName,
+      fileSize: doc.fileSize,
       content,
       contentVersion,
       summary: doc.summary,

@@ -167,6 +167,8 @@ ${query}
       chunkId: chunk.chunkId,
       documentId: chunk.documentId,
       documentTitle: chunk.documentTitle,
+      originalFileName: chunk.originalFileName,
+      fileSize: chunk.fileSize,
       chunkContent:
         chunk.content.substring(0, 200) +
         (chunk.content.length > 200 ? '...' : ''),

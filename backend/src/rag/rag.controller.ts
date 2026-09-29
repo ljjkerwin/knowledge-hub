@@ -112,6 +112,8 @@ export class RagController {
               chunkId: c.chunkId,
               documentId: c.documentId,
               documentTitle: c.documentTitle,
+              originalFileName: c.originalFileName,
+              fileSize: c.fileSize,
               content: c.content,
               score: c.similarity,
             }));
