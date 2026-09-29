@@ -1,32 +1,20 @@
 'use client';
 
-import { PointerEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import type { ECharts, EChartsOption } from 'echarts';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, Minus, Network, Plus, RefreshCw, RotateCcw, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { knowledgeGraphService } from '@/services/knowledge-graph.service';
-import { KnowledgeGraph, KnowledgeGraphNode } from '@/types/api.types';
+import { KnowledgeGraph, KnowledgeGraphNode, KnowledgeGraphSearchResult } from '@/types/api.types';
 
 const colors: Record<string, string> = {
   PERSON: '#f97316', ORGANIZATION: '#2563eb', CONCEPT: '#7c3aed', DOCUMENT: '#0891b2',
   PROCESS: '#16a34a', PRODUCT: '#db2777', LOCATION: '#ca8a04', TIME: '#64748b',
   POLICY: '#dc2626', RESOURCE: '#0f766e',
 };
-
-type Position = { x: number; y: number };
-
-function position(index: number, total: number) {
-  const angle = (Math.PI * 2 * index) / Math.max(total, 1) - Math.PI / 2;
-  const ring = index < 12 ? 30 : 41 + ((index % 3) * 8);
-  // 给节点标签预留边距，避免外层节点越过图画布的圆角边框。
-  const clamp = (value: number) => Math.max(10, Math.min(90, value));
-  return {
-    x: clamp(50 + Math.cos(angle) * ring),
-    y: clamp(50 + Math.sin(angle) * ring),
-  };
-}
 
 export default function KnowledgeGraphPage() {
   return <Suspense fallback={<div className="flex h-full items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>}><KnowledgeGraphContent /></Suspense>;
@@ -36,60 +24,129 @@ function KnowledgeGraphContent() {
   const searchParams = useSearchParams();
   const documentId = searchParams.get('documentId') ?? undefined;
   const [graph, setGraph] = useState<KnowledgeGraph>({ nodes: [], edges: [] });
-  const [positions, setPositions] = useState<Record<string, Position>>({});
   const [selected, setSelected] = useState<KnowledgeGraphNode>();
-  const [draggingId, setDraggingId] = useState<string>();
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [panStart, setPanStart] = useState<{ x: number; y: number; pointerX: number; pointerY: number }>();
   const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<KnowledgeGraphSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const load = useCallback(async () => {
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ECharts | null>(null);
+  const hadSearchQueryRef = useRef(false);
+  const load = useCallback(async (keyword?: string) => {
     setLoading(true); setError('');
     try {
-      const result = documentId ? await knowledgeGraphService.getForDocument(documentId) : await knowledgeGraphService.get();
+      const result = documentId
+        ? await knowledgeGraphService.getForDocument(documentId, 60, keyword)
+        : await knowledgeGraphService.get(60, keyword);
       setGraph(result);
-      setPositions(Object.fromEntries(result.nodes.map((node, index) => [node.id, position(index, result.nodes.length)])));
-      setSelected(undefined); setZoom(1); setPan({ x: 0, y: 0 }); setQuery('');
+      setSelected(undefined); setZoom(1);
     }
     catch (e) { setError(e instanceof Error ? e.message : '无法加载知识图谱'); }
     finally { setLoading(false); }
   }, [documentId]);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  useEffect(() => { void Promise.resolve().then(() => load()); }, [load]);
 
-  const connected = useMemo(() => selected ? new Set(graph.edges.filter((edge) => edge.source === selected.id || edge.target === selected.id).flatMap((edge) => [edge.source, edge.target])) : null, [graph.edges, selected]);
-
-  const moveGraph = (event: PointerEvent<HTMLDivElement>) => {
-    if (panStart) {
-      setPan({ x: panStart.x + event.clientX - panStart.pointerX, y: panStart.y + event.clientY - panStart.pointerY });
-      return;
+  useEffect(() => {
+    const keyword = query.trim();
+    if (!keyword) {
+      const restoreGraph = hadSearchQueryRef.current;
+      hadSearchQueryRef.current = false;
+      const timer = window.setTimeout(() => {
+        setSearchResults([]);
+        setSearchLoading(false);
+        if (restoreGraph) void load();
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
-    if (!draggingId || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = Math.min(90, Math.max(10, ((event.clientX - rect.left) / rect.width) * 100));
-    const y = Math.min(90, Math.max(10, ((event.clientY - rect.top) / rect.height) * 100));
-    setPositions((current) => ({ ...current, [draggingId]: { x, y } }));
-  };
+    hadSearchQueryRef.current = true;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearchLoading(true);
+      void knowledgeGraphService.search(keyword)
+        .then((results) => { if (!cancelled) setSearchResults(results); })
+        .catch(() => { if (!cancelled) setSearchResults([]); })
+        .finally(() => { if (!cancelled) setSearchLoading(false); });
+      void load(keyword);
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [load, query]);
 
   const resetView = () => {
-    setPositions(Object.fromEntries(graph.nodes.map((node, index) => [node.id, position(index, graph.nodes.length)])));
-    setZoom(1); setPan({ x: 0, y: 0 }); setSelected(undefined); setQuery('');
+    setZoom(1); setSelected(undefined); setQuery('');
   };
   const changeZoom = (delta: number) => setZoom((value) => Math.min(2.5, Math.max(0.45, Number((value + delta).toFixed(2)))));
 
   useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const handleWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      setZoom((value) => Math.min(2.5, Math.max(0.45, Number((value + (event.deltaY < 0 ? 0.1 : -0.1)).toFixed(2)))));
+    const container = chartContainerRef.current;
+    if (!container) return;
+    let disposed = false;
+    let chart: ECharts | null = null;
+    let observer: ResizeObserver | null = null;
+
+    void import('echarts').then(({ init }) => {
+      if (disposed) return;
+      chart = init(container);
+      chartRef.current = chart;
+      const option: EChartsOption = {
+        animationDurationUpdate: 350,
+        tooltip: { show: true },
+        series: [{
+          type: 'graph',
+          layout: 'force',
+          roam: true,
+          zoom,
+          data: graph.nodes.map((node) => ({
+            id: node.id,
+            name: node.name,
+            value: node.mentions,
+            symbolSize: Math.min(54, Math.max(28, 24 + node.mentions * 3)),
+            itemStyle: { color: colors[node.type] ?? colors.CONCEPT },
+          })),
+          links: graph.edges.map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+            name: edge.relation,
+            value: edge.weight,
+            lineStyle: { width: Math.max(1, edge.weight * 2), opacity: 0.65 },
+          })),
+          force: { repulsion: 320, edgeLength: [80, 180], gravity: 0.08 },
+          label: { show: true, position: 'right', formatter: '{b}', fontSize: 11 },
+          edgeLabel: {
+            show: false,
+            formatter: (params) => {
+              const data = params.data as { name?: string } | undefined;
+              return data?.name ?? '';
+            },
+            color: '#475569',
+            fontSize: 10,
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            borderRadius: 3,
+            padding: [2, 4],
+          },
+          lineStyle: { color: '#94a3b8', curveness: 0.08 },
+          emphasis: { focus: 'adjacency', lineStyle: { width: 3 }, edgeLabel: { show: true } },
+        }],
+      };
+      chart.setOption(option);
+      chart.on('click', (params) => {
+        if (params.dataType !== 'node') return;
+        const data = params.data as { id?: string } | undefined;
+        const node = graph.nodes.find((item) => item.id === data?.id);
+        if (node) setSelected(node);
+      });
+      observer = new ResizeObserver(() => chart?.resize());
+      observer.observe(container);
+    });
+
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      chart?.dispose();
+      if (chartRef.current === chart) chartRef.current = null;
     };
-    viewport.addEventListener('wheel', handleWheel, { passive: false });
-    return () => viewport.removeEventListener('wheel', handleWheel);
-  }, [graph.nodes.length]);
+  }, [graph, zoom]);
 
   return <div className="flex h-full min-w-0 flex-col overflow-hidden">
     <header className="flex flex-wrap items-center justify-between gap-4 border-b px-6 py-5">
@@ -101,24 +158,17 @@ function KnowledgeGraphContent() {
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
           <span>实体 {graph.nodes.length} 个 · 关系 {graph.edges.length} 条</span>
           <div className="flex items-center gap-2">
-            <div className="relative"><Search className="absolute left-2 top-2 size-3.5" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-8 w-44 pl-7 text-xs" placeholder="查找实体" /></div>
+            <div className="relative"><Search className="absolute left-2 top-2 size-3.5" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-8 w-52 pl-7 text-xs" placeholder="搜索文档、正文或实体" /></div>
             <Button size="icon-sm" variant="outline" onClick={() => changeZoom(-0.15)} aria-label="缩小"><Minus /></Button>
             <span className="w-10 text-center text-xs">{Math.round(zoom * 100)}%</span>
             <Button size="icon-sm" variant="outline" onClick={() => changeZoom(0.15)} aria-label="放大"><Plus /></Button>
             <Button size="icon-sm" variant="outline" onClick={resetView} aria-label="重置视图"><RotateCcw /></Button>
           </div>
         </div>
-        <div ref={viewportRef} className="relative min-h-0 flex-1 touch-none overscroll-contain overflow-hidden rounded-2xl border bg-background/85 shadow-sm">
-          <div ref={canvasRef} onPointerDown={(event) => { if (event.target === event.currentTarget) { event.currentTarget.setPointerCapture(event.pointerId); setPanStart({ ...pan, pointerX: event.clientX, pointerY: event.clientY }); } }} onPointerMove={moveGraph} onPointerUp={() => { setDraggingId(undefined); setPanStart(undefined); }} onPointerLeave={() => { setDraggingId(undefined); setPanStart(undefined); }} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} className={`relative h-full w-full touch-none transition-transform ${panStart ? 'cursor-grabbing' : 'cursor-grab'}`}>
-            <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
-              {graph.edges.map((edge, index) => { const a = positions[edge.source]; const b = positions[edge.target]; if (!a || !b) return null; const active = selected && (edge.source === selected.id || edge.target === selected.id); const faded = Boolean((connected && !connected.has(edge.source)) || (query && !edge.source.toLowerCase().includes(query.toLowerCase()) && !edge.target.toLowerCase().includes(query.toLowerCase()))); return <g key={`${edge.source}-${edge.target}-${index}`}><line x1={`${a.x}%`} y1={`${a.y}%`} x2={`${b.x}%`} y2={`${b.y}%`} stroke={active ? '#2563eb' : '#94a3b8'} strokeWidth={active ? Math.max(2, edge.weight * 3) : Math.max(1, edge.weight * 2)} opacity={faded ? .12 : .7} />{active && <text x={`${(a.x + b.x) / 2}%`} y={`${(a.y + b.y) / 2}%`} textAnchor="middle" className="fill-primary text-[11px] font-medium">{edge.relation}</text>}</g>; })}
-            </svg>
-            {graph.nodes.map((node) => { const p = positions[node.id]; if (!p) return null; const matched = !query || node.name.toLowerCase().includes(query.toLowerCase()) || node.aliases.some((alias) => alias.toLowerCase().includes(query.toLowerCase())); const active = matched && (!connected || connected.has(node.id)); return <button key={node.id} onClick={() => setSelected(node)} onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setDraggingId(node.id); }} title={node.name} style={{ left: `${p.x}%`, top: `${p.y}%`, borderColor: colors[node.type] ?? colors.CONCEPT }} className={`absolute -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 bg-background px-3 py-2 text-xs font-medium shadow-sm transition active:cursor-grabbing ${selected?.id === node.id ? 'ring-2 ring-primary/20' : ''} ${active ? 'opacity-100' : 'opacity-20'}`}><span className="block max-w-24 truncate">{node.name}</span><span className="mt-0.5 block text-[10px] text-muted-foreground">{node.type}</span></button>; })}
-          </div>
-        </div>
+        <div ref={chartContainerRef} className="min-h-0 flex-1 overflow-hidden rounded-2xl border bg-background/85 shadow-sm" />
       </section>
       <aside className="overflow-auto border-l bg-card p-5">
-        {selected ? <div><div className="flex items-start justify-between gap-3"><div><span className="rounded-full px-2 py-1 text-xs text-white" style={{ backgroundColor: colors[selected.type] ?? colors.CONCEPT }}>{selected.type}</span><h2 className="mt-3 text-xl font-semibold">{selected.name}</h2></div><Button size="icon-sm" variant="ghost" onClick={() => setSelected(undefined)} aria-label="关闭详情"><X /></Button></div>
+        {query.trim() ? <SearchResults query={query} results={searchResults} loading={searchLoading} onSelectEntity={(result) => { const node = graph.nodes.find((item) => item.id === result.id); if (node) setSelected(node); }} /> : selected ? <div><div className="flex items-start justify-between gap-3"><div><span className="rounded-full px-2 py-1 text-xs text-white" style={{ backgroundColor: colors[selected.type] ?? colors.CONCEPT }}>{selected.type}</span><h2 className="mt-3 text-xl font-semibold">{selected.name}</h2></div><Button size="icon-sm" variant="ghost" onClick={() => setSelected(undefined)} aria-label="关闭详情"><X /></Button></div>
           {selected.description && <p className="mt-4 text-sm leading-6 text-muted-foreground">{selected.description}</p>}
           <dl className="mt-5 space-y-3 border-y py-4 text-sm"><div className="flex justify-between"><dt className="text-muted-foreground">关联文档块</dt><dd>{selected.mentions}</dd></div><div className="flex justify-between"><dt className="text-muted-foreground">关系数</dt><dd>{graph.edges.filter((edge) => edge.source === selected.id || edge.target === selected.id).length}</dd></div></dl>
           {selected.aliases.length > 0 && <div className="mt-5"><h3 className="text-sm font-medium">别名</h3><p className="mt-2 text-sm text-muted-foreground">{selected.aliases.join('、')}</p></div>}
@@ -127,4 +177,26 @@ function KnowledgeGraphContent() {
       </aside>
     </main>}
   </div>;
+}
+
+const labelNames: Record<KnowledgeGraphSearchResult['label'], string> = {
+  KnowledgeDocument: '文档',
+  DocumentChunk: '文档块',
+  KnowledgeEntity: '知识实体',
+};
+
+function SearchResults({ query, results, loading, onSelectEntity }: {
+  query: string;
+  results: KnowledgeGraphSearchResult[];
+  loading: boolean;
+  onSelectEntity: (result: KnowledgeGraphSearchResult) => void;
+}) {
+  if (loading) return <div className="flex h-full items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
+  if (!results.length) return <div className="flex h-full flex-col justify-center text-center text-sm text-muted-foreground"><Search className="mx-auto mb-3 size-8" /><p>未找到“{query.trim()}”相关节点</p><p className="mt-2 text-xs">可匹配文档标题和摘要、文档块标题和正文、实体名称和描述。</p></div>;
+  return <div><h2 className="text-base font-semibold">搜索结果</h2><p className="mt-1 text-xs text-muted-foreground">{results.length} 个匹配节点</p><div className="mt-4 space-y-3">{results.map((result) => {
+    const documentId = result.label === 'KnowledgeDocument' ? result.id : result.documentId;
+    const detail = result.description ?? result.summary ?? result.snippet ?? result.heading;
+    const content = <><div className="flex items-center justify-between gap-2"><span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{labelNames[result.label]}</span>{result.type && <span className="truncate text-[11px] text-muted-foreground">{result.type}</span>}</div><p className="mt-2 truncate text-sm font-medium">{result.name}</p>{detail && <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">{detail}</p>}</>;
+    return result.label === 'KnowledgeEntity' ? <button key={`${result.label}-${result.id}`} onClick={() => onSelectEntity(result)} className="block w-full rounded-lg border p-3 text-left transition hover:border-primary/50 hover:bg-muted/40">{content}</button> : documentId ? <Link key={`${result.label}-${result.id}`} href={`/documents/${documentId}${result.label === 'DocumentChunk' ? `?citation=${encodeURIComponent(result.id)}` : ''}`} className="block rounded-lg border p-3 transition hover:border-primary/50 hover:bg-muted/40">{content}</Link> : <div key={`${result.label}-${result.id}`} className="rounded-lg border p-3">{content}</div>;
+  })}</div></div>;
 }

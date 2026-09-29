@@ -45,6 +45,20 @@ export interface KnowledgeGraph {
   edges: KnowledgeGraphEdge[];
 }
 
+/** 知识图谱搜索接口对不同节点属性做过统一映射后的结果。 */
+export interface KnowledgeGraphSearchResult {
+  label: 'KnowledgeDocument' | 'DocumentChunk' | 'KnowledgeEntity';
+  id: string;
+  name: string;
+  type: string | null;
+  title: string | null;
+  description: string | null;
+  heading: string | null;
+  documentId: string | null;
+  summary: string | null;
+  snippet: string | null;
+}
+
 export type DocumentStatus = 0 | 1 | 2 | 3;
 
 export interface KnowledgeDocument {

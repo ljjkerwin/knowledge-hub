@@ -1,12 +1,17 @@
 import { apiClient } from '@/lib/api-client';
-import { KnowledgeGraph } from '@/types/api.types';
+import { KnowledgeGraph, KnowledgeGraphSearchResult } from '@/types/api.types';
 
 export const knowledgeGraphService = {
-  get: (limit = 60) => apiClient.get<KnowledgeGraph>('/knowledge-graph', {
+  get: (limit = 60, keyword?: string) => apiClient.get<KnowledgeGraph>('/knowledge-graph', {
     limit: String(limit),
+    ...(keyword ? { keyword } : {}),
   }),
-  getForDocument: (documentId: string, limit = 60) => apiClient.get<KnowledgeGraph>(
+  getForDocument: (documentId: string, limit = 60, keyword?: string) => apiClient.get<KnowledgeGraph>(
     `/knowledge-graph/documents/${encodeURIComponent(documentId)}`,
-    { limit: String(limit) },
+    { limit: String(limit), ...(keyword ? { keyword } : {}) },
+  ),
+  search: (keyword: string, limit = 20) => apiClient.get<KnowledgeGraphSearchResult[]>(
+    '/knowledge-graph/search',
+    { keyword, limit: String(limit) },
   ),
 };

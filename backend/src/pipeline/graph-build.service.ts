@@ -249,7 +249,7 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
   /**
    * 返回用于可视化的实体子图。节点按被文档块提及次数排序，避免一次向浏览器传递整张图。
    */
-  async getVisualization(limit = 60, documentId?: string) {
+  async getVisualization(limit = 60, documentId?: string, keyword?: string) {
     if (!this.driver) {
       throw new ServiceUnavailableException('知识图谱服务暂不可用');
     }
@@ -260,7 +260,16 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
       const nodeResult = await session.run(
         `
         MATCH (e:KnowledgeEntity)<-[:MENTIONS]-(c:DocumentChunk)<-[:HAS_CHUNK]-(d:KnowledgeDocument)
-        WHERE $documentId IS NULL OR d.id = $documentId
+        WHERE ($documentId IS NULL OR d.id = $documentId)
+          AND (
+            $keyword IS NULL
+            OR toLower(coalesce(e.name, '')) CONTAINS $keyword
+            OR toLower(coalesce(e.description, '')) CONTAINS $keyword
+            OR toLower(coalesce(c.heading, '')) CONTAINS $keyword
+            OR toLower(coalesce(c.content, '')) CONTAINS $keyword
+            OR toLower(coalesce(d.title, '')) CONTAINS $keyword
+            OR toLower(coalesce(d.summary, '')) CONTAINS $keyword
+          )
         WITH e, count(DISTINCT c) AS mentions,
              collect(DISTINCT { id: d.id, title: d.title }) AS documents
         RETURN e.name AS id, e.name AS name, e.type AS type,
@@ -269,7 +278,11 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
         ORDER BY mentions DESC, name ASC
         LIMIT $limit
         `,
-        { limit: neo4j.int(safeLimit), documentId: documentId ?? null },
+        {
+          limit: neo4j.int(safeLimit),
+          documentId: documentId ?? null,
+          keyword: keyword?.trim().toLowerCase() || null,
+        },
       );
       const nodes = nodeResult.records.map((record) => ({
         id: String(record.get('id')),
@@ -303,6 +316,74 @@ export class GraphBuildService implements OnModuleInit, OnModuleDestroy {
         weight: this.toNumber(record.get('weight')),
       }));
       return { nodes, edges };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * 搜索图谱中的原始节点。不同节点的业务字段不同，统一映射为前端可直接展示的结果。
+   */
+  async searchNodes(keyword: string, limit = 20) {
+    if (!this.driver) {
+      throw new ServiceUnavailableException('知识图谱服务暂不可用');
+    }
+
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    if (!normalizedKeyword) return [];
+
+    const safeLimit = Math.min(Math.max(Math.floor(limit) || 20, 1), 100);
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (n)
+        WHERE (n:KnowledgeDocument OR n:DocumentChunk OR n:KnowledgeEntity)
+          AND (
+            toLower(coalesce(n.name, '')) CONTAINS $keyword
+            OR toLower(coalesce(n.title, '')) CONTAINS $keyword
+            OR toLower(coalesce(n.heading, '')) CONTAINS $keyword
+            OR toLower(coalesce(n.description, '')) CONTAINS $keyword
+            OR toLower(coalesce(n.summary, '')) CONTAINS $keyword
+            OR toLower(coalesce(n.content, '')) CONTAINS $keyword
+          )
+        RETURN labels(n)[0] AS label,
+               coalesce(n.name, n.title, n.heading, n.id, n.chunkId) AS name,
+               coalesce(n.id, n.chunkId, n.name) AS id,
+               n.type AS type,
+               n.title AS title,
+               n.description AS description,
+               n.heading AS heading,
+               n.documentId AS documentId,
+               n.summary AS summary,
+               CASE WHEN n.content IS NULL THEN null ELSE substring(n.content, 0, 160) END AS snippet
+        ORDER BY label, name
+        LIMIT $limit
+        `,
+        { keyword: normalizedKeyword, limit: neo4j.int(safeLimit) },
+      );
+
+      return result.records.map((record) => ({
+        label: String(record.get('label')),
+        id: String(record.get('id')),
+        name: String(record.get('name')),
+        type: record.get('type') == null ? null : String(record.get('type')),
+        title: record.get('title') == null ? null : String(record.get('title')),
+        description:
+          record.get('description') == null
+            ? null
+            : String(record.get('description')),
+        heading:
+          record.get('heading') == null ? null : String(record.get('heading')),
+        documentId:
+          record.get('documentId') == null
+            ? null
+            : String(record.get('documentId')),
+        summary:
+          record.get('summary') == null ? null : String(record.get('summary')),
+        snippet:
+          record.get('snippet') == null ? null : String(record.get('snippet')),
+      }));
     } finally {
       await session.close();
     }
