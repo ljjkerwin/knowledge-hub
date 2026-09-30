@@ -10,6 +10,8 @@ import { ChatOpenAI } from '@langchain/openai';
 export interface ConversationContext {
   history: MessageEntity[];
   summary?: string;
+  /** Mem0 按当前问题召回的、跨会话的用户长期记忆。 */
+  longTermMemories?: string[];
   conversationId: string;
 }
 

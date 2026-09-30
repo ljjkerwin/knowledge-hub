@@ -47,6 +47,8 @@ export function isInternalAgentEvent(
 export interface AgentRunInput extends AguiStreamOptions {
   question: string;
   context: ConversationContext;
+  /** 线上请求传入，用于召回跨会话的用户长期记忆；离线评估可省略。 */
+  userId?: string;
   /** 调用方可指定，用于将离线实验与 trace 或数据集项关联。 */
   queryId?: string;
 }

@@ -15,6 +15,7 @@ import { DraftAssessmentService } from './agent/answer-evaluator.service';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
 import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
+import { LongTermMemoryService } from './long-term-memory.service';
 import { ConversationEntity } from './entities/conversation.entity';
 import { MessageEntity } from './entities/message.entity';
 import { LlmModule } from '../llm/llm.module';
@@ -60,6 +61,7 @@ import { LlmModule } from '../llm/llm.module';
     AgentOrchestrator,
     ConversationService,
     ContextManager,
+    LongTermMemoryService,
   ],
   exports: [AgentOrchestrator, ConversationService],
 })

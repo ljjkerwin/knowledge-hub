@@ -34,6 +34,7 @@ import {
 } from './agent-run-result';
 import { SearchType } from '../types/search.types';
 import type { ConversationContext } from '../context-manager.service';
+import { LongTermMemoryService } from '../long-term-memory.service';
 import { CallbackHandler } from '@langfuse/langchain';
 import { isLangfuseTracingEnabled } from '../../langfuse.config';
 import { startActiveObservation } from '@langfuse/tracing';
@@ -47,6 +48,8 @@ interface WeightedQuery {
 const AgentState = Annotation.Root({
   queryId: Annotation<string>,
   originalQuestion: Annotation<string>,
+  /** 线上用户标识，仅用于隔离 Mem0 长期记忆；离线运行时为空。 */
+  userId: Annotation<string | undefined>,
   /** 首轮结合会话上下文改写出的独立问题；用于生成与评估。 */
   answerQuestion: Annotation<string>,
   /** 每轮分析、检索所用的问题；可能是追问或扩展查询。 */
@@ -92,6 +95,7 @@ export class AgentOrchestrator {
     private readonly rerankerService: RerankerService,
     private readonly generationService: GenerationService,
     private readonly draftAssessmentService: DraftAssessmentService,
+    private readonly longTermMemoryService: LongTermMemoryService,
     private readonly config: ConfigService,
   ) {
     this.maxIterations = Number(this.config.get('RAG_MAX_ITERATIONS', 3));
@@ -378,9 +382,21 @@ export class AgentOrchestrator {
 
         this.logger.verbose(`[langgraph][directGenerate]`);
 
+        const longTermMemories = state.userId
+          ? await this.longTermMemoryService.recall(
+              state.userId,
+              state.answerQuestion,
+            )
+          : [];
+
+        // log处长期记忆
+        this.logger.verbose(`[longTermMemories] ${state.answerQuestion} : ${longTermMemories}`);
+
+        const context = { ...state.context, longTermMemories };
+
         for await (const chunk of this.generationService.generateDirectStream(
           state.originalQuestion,
-          state.context,
+          context,
         )) {
           if (chunk.type === 'token')
             this.emit(
@@ -417,11 +433,17 @@ export class AgentOrchestrator {
           },
           config,
         );
-        const chunks = await this.executeRetrieval(
-          analysis!,
-          strategy!,
-          state.originalQuestion,
-        );
+        // 首轮问题改写完成后，同时检索知识库与 Mem0。后续补充检索复用
+        // 已召回的长期记忆，避免一次回答反复请求 Mem0。
+        const [chunks, longTermMemories] = await Promise.all([
+          this.executeRetrieval(analysis!, strategy!, state.originalQuestion),
+          state.iteration === 1 && state.userId
+            ? this.longTermMemoryService.recall(
+                state.userId,
+                state.answerQuestion,
+              )
+            : Promise.resolve(state.context.longTermMemories ?? []),
+        ]);
 
         this.logger.verbose(
           `[retrieve][chunks] ${JSON.stringify(chunks, null, 2)}`,
@@ -447,7 +469,11 @@ export class AgentOrchestrator {
           },
           config,
         );
-        return { allChunks, completedIterations: state.iteration };
+        return {
+          allChunks,
+          completedIterations: state.iteration,
+          context: { ...state.context, longTermMemories },
+        };
       })
       // 草稿保持在服务端，客户端只在最终节点收到选中的答案。
       .addNode('generateDraft', async (state: AgentStateValue, config) => {
@@ -477,6 +503,7 @@ export class AgentOrchestrator {
           this.generationService.generate(
             state.answerQuestion,
             state.allChunks,
+            state.context,
           );
         const draft = isLangfuseTracingEnabled
           ? await startActiveObservation(
@@ -490,6 +517,9 @@ export class AgentOrchestrator {
                   metadata: {
                     iteration: state.iteration,
                     contextChunkCount: state.allChunks.length,
+                    // 仅记录数量，避免把用户长期记忆原文重复写入 trace。
+                    longTermMemoryCount:
+                      state.context.longTermMemories?.length ?? 0,
                   },
                 });
                 const generated = await generate();
@@ -710,6 +740,7 @@ export class AgentOrchestrator {
     const {
       question: originalQuestion,
       context,
+      userId,
       queryId: providedQueryId,
       ...options
     } = input;
@@ -723,6 +754,7 @@ export class AgentOrchestrator {
         {
           queryId,
           originalQuestion,
+          userId,
           answerQuestion: originalQuestion,
           retrievalQuestion: originalQuestion,
           context,

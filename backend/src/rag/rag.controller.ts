@@ -16,6 +16,7 @@ import { LangfuseSpan, startActiveObservation } from '@langfuse/tracing';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
 import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
+import { LongTermMemoryService } from './long-term-memory.service';
 import { ChatDto, ConversationListDto } from './dto/chat.dto';
 import { AguiEventType } from './types/agui.types';
 import { isLangfuseTracingEnabled } from '../langfuse.config';
@@ -37,6 +38,7 @@ export class RagController {
     private readonly agentOrchestrator: AgentOrchestrator,
     private readonly conversationService: ConversationService,
     private readonly contextManager: ContextManager,
+    private readonly longTermMemoryService: LongTermMemoryService,
   ) {}
 
   // ==================== 多轮对话 ====================
@@ -71,7 +73,8 @@ export class RagController {
           );
         }
 
-        // 2. 在保存当前消息前读取历史；Agent 会用它完成上下文改写。
+        // 2. 在保存当前消息前读取短期历史。长期记忆会在 Agent 完成问题
+        // 改写后，与知识库检索并行召回。
         const context = await this.contextManager.buildContext(conversationId);
 
         // 3. 保存用户消息。
@@ -93,6 +96,7 @@ export class RagController {
         for await (const event of this.agentOrchestrator.queryStream({
           question: dto.message,
           conversationId,
+          userId: req.user.id,
           context,
           enableFollowUp: true,
         })) {
@@ -157,6 +161,13 @@ export class RagController {
           totalMs: Date.now() - startedAt,
           ...(timeToFirstTextMs !== undefined ? { timeToFirstTextMs } : {}),
         });
+
+        // 主请求已成功完成后再异步提交长期记忆，避免 Mem0 网络耗时拖慢
+        // SSE 连接结束。remember 内部负责超时和错误日志，不向主链路抛错。
+        void this.longTermMemoryService.remember(req.user.id, conversationId, [
+          { role: 'user', content: dto.message },
+          { role: 'assistant', content: answerText },
+        ]);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.error(`对话流式查询失败: ${message}`);
