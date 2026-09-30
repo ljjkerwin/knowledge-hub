@@ -1,7 +1,5 @@
-import { apiClient, API_BASE_URL } from '@/lib/api-client';
-import { getAccessToken } from '@/lib/access-token';
+import { apiClient } from '@/lib/api-client';
 import {
-  ChatRequest,
   Conversation,
   Message,
   PaginatedResponse,
@@ -11,65 +9,6 @@ import {
  * 对话服务
  */
 export const conversationService = {
-  /**
-   * 流式聊天 (SSE)
-   */
-  async *chatStream(
-    request: ChatRequest,
-  ): AsyncGenerator<unknown, void, unknown> {
-    const response = await fetch(
-      `${API_BASE_URL}/rag/chat/stream`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(getAccessToken()
-            ? { Authorization: `Bearer ${getAccessToken()}` }
-            : {}),
-        },
-        body: JSON.stringify(request),
-        credentials: 'include',
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(`Stream request failed: ${response.status}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No reader available');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') return;
-            try {
-              yield JSON.parse(data);
-            } catch {
-              // Skip invalid JSON
-            }
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  },
-
   /**
    * 获取对话列表
    */

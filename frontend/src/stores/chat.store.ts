@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { Message, Conversation, Citation } from '@/types/api.types';
-import { AguiEvent, AguiEventType } from '@/types/agui.types';
+import { Message, Conversation } from '@/types/api.types';
 import { conversationService } from '@/services/conversation.service';
 
 interface ChatState {
@@ -12,25 +11,13 @@ interface ChatState {
   hasMoreConversations: boolean;
   isLoadingConversations: boolean;
 
-  // 输入状态
-  input: string;
-  isLoading: boolean;
-  isStreaming: boolean;
-
-  // 当前流式响应
-  currentResponse: string;
-  currentCitations: Citation[];
-  currentThinking: string;
-
   // Actions
-  setInput: (input: string) => void;
   setConversationId: (id: string | null) => void;
-  sendMessage: (userId: string) => Promise<void>;
+  addConversation: (conversation: Conversation) => void;
   loadConversations: (userId: string, options?: { loadMore?: boolean }) => Promise<void>;
   loadHistory: (conversationId: string) => Promise<void>;
   deleteConversation: (conversationId: string) => Promise<void>;
   clearChat: () => void;
-  handleStreamEvent: (event: AguiEvent) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -40,106 +27,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversationPage: 0,
   hasMoreConversations: true,
   isLoadingConversations: false,
-  input: '',
-  // input: 'm2和m3职级报销对比',
-  isLoading: false,
-  isStreaming: false,
-  currentResponse: '',
-  currentCitations: [],
-  currentThinking: '',
-
-  setInput: (input) => set({ input }),
-
   setConversationId: (id) => set({ conversationId: id }),
 
-  sendMessage: async (userId: string) => {
-    const { input, conversationId, messages } = get();
-    if (!input.trim()) return;
-    const isNewConversation = !conversationId;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      conversationId: conversationId || '',
-      role: 'user',
-      content: input,
-      createdAt: new Date().toISOString(),
-    };
-
-    set({
-      messages: [...messages, userMessage],
-      input: '',
-      isLoading: true,
-      isStreaming: true,
-      currentResponse: '',
-      currentCitations: [],
-      currentThinking: '',
-    });
-
-    try {
-      const stream = conversationService.chatStream({
-        message: input,
-        conversationId: conversationId || undefined,
-      });
-
-      for await (const event of stream) {
-        const aguiEvent = event as AguiEvent;
-        get().handleStreamEvent(aguiEvent);
-
-        // 新会话创建后，后端会先推送 metadata。此时立即在侧栏显示它，
-        // 不必等待整段回答完成或下一次刷新会话列表。
-        if (isNewConversation && aguiEvent.type === AguiEventType.METADATA) {
-          const newConversationId = aguiEvent.data.conversationId;
-          if (newConversationId) {
-            const now = new Date().toISOString();
-            const title = input.length > 20 ? `${input.substring(0, 20)}...` : input;
-
-            set((state) => {
-              if (state.conversations.some((item) => item.id === newConversationId)) {
-                return state;
-              }
-
-              return {
-                conversations: [
-                  {
-                    id: newConversationId,
-                    userId,
-                    title,
-                    createdAt: now,
-                    updatedAt: now,
-                  },
-                  ...state.conversations,
-                ],
-              };
-            });
-          }
-        }
-      }
-
-      // 流结束，添加助手消息
-      const { currentResponse, currentCitations, conversationId: currentConvId } = get();
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        conversationId: currentConvId || '',
-        role: 'assistant',
-        content: currentResponse,
-        citations: currentCitations,
-        createdAt: new Date().toISOString(),
-      };
-
-      set((state) => ({
-        messages: [...state.messages, assistantMessage],
-        isLoading: false,
-        isStreaming: false,
-        currentResponse: '',
-        currentCitations: [],
-        currentThinking: '',
-      }));
-    } catch (error) {
-      console.error('Send message failed:', error);
-      set({ isLoading: false, isStreaming: false });
-    }
-  },
+  addConversation: (conversation) =>
+    set((state) => ({
+      conversations: state.conversations.some((item) => item.id === conversation.id)
+        ? state.conversations
+        : [conversation, ...state.conversations],
+    })),
 
   loadConversations: async (userId: string, options = {}) => {
     const { loadMore = false } = options;
@@ -193,49 +88,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       conversationId: null,
       messages: [],
-      currentResponse: '',
-      currentCitations: [],
-      currentThinking: '',
     }),
-
-  handleStreamEvent: (event: AguiEvent) => {
-    switch (event.type) {
-      case AguiEventType.METADATA:
-        set({ conversationId: event.data.conversationId });
-        break;
-
-      case AguiEventType.THINKING:
-        set({ currentThinking: event.content });
-        break;
-
-      case AguiEventType.TEXT:
-        set((state) => ({
-          currentResponse: state.currentResponse + event.content,
-        }));
-        break;
-
-      case AguiEventType.RETRIEVAL_RESULT:
-        set({
-          currentCitations: event.chunks.map((c, i) => ({
-            index: i + 1,
-            chunkId: c.chunkId,
-            documentId: c.documentId,
-            documentTitle: c.documentTitle,
-            originalFileName: c.originalFileName,
-            fileSize: c.fileSize,
-            content: c.content,
-            score: c.similarity,
-          })),
-        });
-        break;
-
-      case AguiEventType.ERROR:
-        console.error('Stream error:', event.message);
-        break;
-
-      case AguiEventType.DONE:
-        // 流结束
-        break;
-    }
-  },
 }));

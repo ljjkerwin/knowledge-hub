@@ -217,20 +217,24 @@ runner 通过 `tsx` 直接执行 TypeScript 源码，再通过精简的 Nest `Ev
 
 ## 6. SSE 接口需要单独测什么
 
-Agent 离线质量通过，不代表 `@Sse('chat/stream')` 可用。e2e 至少覆盖：
+Agent 离线质量通过，不代表 AI SDK UI Message Stream 接口可用。e2e 至少覆盖：
 
-1. 无 `conversationId` 时先发一个合法 `METADATA`，且包含新会话 ID 与 query ID。
-2. 正常路径最终恰好一个 `DONE`，没有 `ERROR`；所有 TEXT 拼接后等于落库答案。
-3. 错误路径最终有 `ERROR`、无 `DONE`，且不落一条“正常助手消息”。
-4. 已有会话必须校验归属，不能跨用户读取。
-5. 客户端断开时应取消或限时终止下游工作，避免幽灵请求持续计费。
-6. 事件 JSON 均符合 AGUI schema，timestamp 单调非递减。
-7. 记录 TTFE（首事件）和 TTFT（首文本），而不仅是总时延。
-8. 下游超时、ES/Neo4j/LLM 错误、数据库落库失败分别注入故障测试。
+当前 controller 使用官方 `createUIMessageStream` 和
+`pipeUIMessageStreamToResponse` 生成并输出协议流。
+
+1. 响应包含 `x-vercel-ai-ui-message-stream: v1`，并以 `data: [DONE]` 结束。
+2. 无 `conversationId` 时发送合法的 `data-conversation`，且包含新会话 ID。
+3. 正常路径的 `text-start` / `text-delta` / `text-end` 配对，所有 delta 拼接后等于落库答案。
+4. 错误路径发送 `error` 和 `finish(error)`，且不落一条“正常助手消息”。
+5. 已有会话必须校验归属，不能跨用户读取。
+6. 客户端断开时应取消或限时终止下游工作，避免幽灵请求持续计费。
+7. 事件 JSON 均符合 AI SDK `UIMessageChunk` schema。
+8. 记录 TTFE（首事件）和 TTFT（首文本），而不仅是总时延。
+9. 下游超时、ES/Neo4j/LLM 错误、数据库落库失败分别注入故障测试。
 
 当前 controller 只有在 `DONE` 且助手消息落库成功后才把 `rag.request.success` 记为 true，这个
-定义是正确的接口级语义。需要特别补充客户端取消传播；仅让 RxJS `Subject` complete，并不
-必然会取消正在运行的 LangGraph、检索或模型请求。
+定义是正确的接口级语义。需要特别补充客户端取消传播；HTTP 响应关闭并不必然会取消正在
+运行的 LangGraph、检索或模型请求。
 
 ## 7. 90 天落地路线
 

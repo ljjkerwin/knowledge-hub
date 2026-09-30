@@ -1,7 +1,13 @@
 "use client";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Message, Citation } from "@/types/api.types";
+import type { Citation } from "@/types/api.types";
+import {
+  getMessageCitations,
+  getMessageStatus,
+  getMessageText,
+  type KnowledgeUIMessage,
+} from "@/types/chat.types";
 import {
   User,
   Bot,
@@ -11,17 +17,22 @@ import {
   FileImage,
   FileSpreadsheet,
   FileText,
+  Loader2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { MarkdownContent } from "./markdown-content";
 import Link from "next/link";
 
 interface MessageBubbleProps {
-  message: Message;
+  message: KnowledgeUIMessage;
+  isStreaming?: boolean;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming = false }: MessageBubbleProps) {
   const isUser = message.role === "user";
+  const content = getMessageText(message);
+  const citations = getMessageCitations(message);
+  const status = getMessageStatus(message);
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
@@ -34,17 +45,29 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       <div
         className={`flex flex-col gap-2 max-w-[80%] ${isUser ? "items-end" : "items-start"}`}
       >
-        <div
-          className={`rounded-xl px-3 py-2 ring-1 ring-foreground/10 ${
-            isUser ? "bg-primary text-primary-foreground" : "bg-card"
-          }`}
-        >
-          <MarkdownContent content={message.content} />
-        </div>
+        {isStreaming && status && (
+          <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span className="italic">{status}</span>
+          </div>
+        )}
 
-        {message.citations && message.citations.length > 0 && (
+        {content && (
+          <div
+            className={`rounded-xl px-3 py-2 ring-1 ring-foreground/10 ${
+              isUser ? "bg-primary text-primary-foreground" : "bg-card"
+            }`}
+          >
+            <MarkdownContent content={content} />
+            {isStreaming && !isUser && (
+              <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-primary" />
+            )}
+          </div>
+        )}
+
+        {citations.length > 0 && (
           <div className="flex w-full flex-wrap gap-2">
-            {message.citations.map((citation, index) => (
+            {citations.map((citation, index) => (
               <CitationBadge
                 key={index}
                 citation={citation}

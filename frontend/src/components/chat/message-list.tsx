@@ -1,12 +1,18 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useChatStore } from '@/stores/chat.store';
+import type { ChatStatus } from 'ai';
+import type { KnowledgeUIMessage } from '@/types/chat.types';
 import { MessageBubble } from './message-bubble';
-import { StreamingBubble } from './streaming-bubble';
 
-export function MessageList() {
-  const { messages, isStreaming, currentResponse, currentThinking } = useChatStore();
+interface MessageListProps {
+  messages: KnowledgeUIMessage[];
+  status: ChatStatus;
+  error?: Error;
+}
+
+export function MessageList({ messages, status, error }: MessageListProps) {
+  const isLoading = status === 'submitted' || status === 'streaming';
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 自动滚动到底部
@@ -14,7 +20,7 @@ export function MessageList() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, currentResponse]);
+  }, [messages]);
 
   return (
     <div
@@ -22,7 +28,7 @@ export function MessageList() {
       className="chat-message-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
     >
       <div className="mx-auto max-w-4xl space-y-4">
-        {messages.length === 0 && !isStreaming && (
+        {messages.length === 0 && !isLoading && (
           <div className="flex items-center justify-center h-[400px] text-muted-foreground">
             <div className="text-center">
               <h3 className="text-lg font-semibold mb-2">开始对话</h3>
@@ -31,15 +37,22 @@ export function MessageList() {
           </div>
         )}
 
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+        {messages.map((message, index) => (
+          <MessageBubble
+            key={message.id}
+            message={message}
+            isStreaming={isLoading && index === messages.length - 1}
+          />
         ))}
 
-        {isStreaming && (
-          <StreamingBubble
-            response={currentResponse}
-            thinking={currentThinking}
-          />
+        {status === 'submitted' && (
+          <div className="text-sm text-muted-foreground">正在思考...</div>
+        )}
+
+        {error && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {error.message || '消息发送失败，请稍后重试'}
+          </div>
         )}
       </div>
     </div>

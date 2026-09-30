@@ -49,8 +49,7 @@ src/
 │   │   ├── chat-input.tsx
 │   │   ├── conversation-panel.tsx # 对话历史面板
 │   │   ├── message-list.tsx
-│   │   ├── message-bubble.tsx
-│   │   └── streaming-bubble.tsx
+│   │   └── message-bubble.tsx
 │   └── ui/                # shadcn/ui 组件
 ├── lib/
 │   ├── api-client.ts      # API 客户端
@@ -62,7 +61,7 @@ src/
 │   └── chat.store.ts      # Zustand 状态管理
 └── types/
     ├── api.types.ts       # API 类型定义
-    └── agui.types.ts      # AGUI 事件类型
+    └── chat.types.ts      # AI SDK UIMessage 类型
 ```
 
 ## 布局结构

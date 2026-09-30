@@ -6,11 +6,16 @@ import {
   Body,
   Param,
   Query,
-  Sse,
   Logger,
   Req,
+  Res,
 } from '@nestjs/common';
-import { Observable, Subject } from 'rxjs';
+import type { Response } from 'express';
+import {
+  createUIMessageStream,
+  pipeUIMessageStreamToResponse,
+  type UIMessage,
+} from 'ai';
 import { LangfuseClient } from '@langfuse/client';
 import { LangfuseSpan, startActiveObservation } from '@langfuse/tracing';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
@@ -19,6 +24,7 @@ import { ContextManager } from './context-manager.service';
 import { LongTermMemoryService } from './long-term-memory.service';
 import { ChatDto, ConversationListDto } from './dto/chat.dto';
 import { AguiEventType } from './types/agui.types';
+import type { Citation } from './types/rag.types';
 import { isLangfuseTracingEnabled } from '../langfuse.config';
 
 interface AuthenticatedRequest {
@@ -26,6 +32,31 @@ interface AuthenticatedRequest {
     id: string;
   };
 }
+
+interface StreamCitation extends Citation {
+  content: string;
+  score: number;
+}
+
+interface ChatMessageMetadata {
+  conversationId?: string;
+  queryId?: string;
+  totalIterations?: number;
+}
+
+type KnowledgeUIMessage = UIMessage<
+  ChatMessageMetadata,
+  {
+    conversation: {
+      conversationId: string;
+      title: string;
+    };
+    status: {
+      text: string;
+    };
+    citations: StreamCitation[];
+  }
+>;
 
 @Controller('rag')
 export class RagController {
@@ -43,151 +74,243 @@ export class RagController {
 
   // ==================== 多轮对话 ====================
 
-  /**
-   * 多轮对话流式（AGUI 规范）
-   */
+  /** 多轮对话流式（Vercel AI SDK UI Message Stream 规范） */
   @Post('chat/stream')
-  @Sse('chat/stream')
   async chatStream(
     @Body() dto: ChatDto,
     @Req() req: AuthenticatedRequest,
-  ): Promise<Observable<MessageEvent>> {
-    const subject = new Subject<MessageEvent>();
+    @Res() response: Response,
+  ): Promise<void> {
+    const stream = createUIMessageStream<KnowledgeUIMessage>({
+      execute: async ({ writer }) => {
+        await startActiveObservation('rag.chat.stream', async (span) => {
+          const startedAt = Date.now();
+          let textStarted = false;
+          const textPartId = `text-${startedAt}`;
+          try {
+            span.update({ input: { messageLength: dto.message.length } });
+            // 1. 获取或创建对话
+            let conversationId = dto.conversationId;
+            if (!conversationId) {
+              const conversation = await this.conversationService.create(
+                req.user.id,
+              );
+              conversationId = conversation.id;
+            } else {
+              // 校验用户是否有权访问指定会话
+              await this.conversationService.findOneForUser(
+                conversationId,
+                req.user.id,
+              );
+            }
 
-    void startActiveObservation('rag.chat.stream', async (span) => {
-      const startedAt = Date.now();
-      try {
-        span.update({ input: { messageLength: dto.message.length } });
-        // 1. 获取或创建对话
-        let conversationId = dto.conversationId;
-        if (!conversationId) {
-          const conversation = await this.conversationService.create(
-            req.user.id,
-          );
-          conversationId = conversation.id;
-        } else {
-          // 校验用户是否有权访问指定会话
-          await this.conversationService.findOneForUser(
-            conversationId,
-            req.user.id,
-          );
-        }
+            writer.write({
+              type: 'start',
+              messageId: `assistant-${conversationId}-${startedAt}`,
+              messageMetadata: { conversationId },
+            });
+            writer.write({
+              type: 'data-conversation',
+              id: 'conversation',
+              data: {
+                conversationId,
+                title:
+                  dto.message.length > 20
+                    ? `${dto.message.substring(0, 20)}...`
+                    : dto.message,
+              },
+              transient: true,
+            });
 
-        // 2. 在保存当前消息前读取短期历史。长期记忆会在 Agent 完成问题
-        // 改写后，与知识库检索并行召回。
-        const context = await this.contextManager.buildContext(conversationId);
+            // 2. 在保存当前消息前读取短期历史。长期记忆会在 Agent 完成问题
+            // 改写后，与知识库检索并行召回。
+            const context =
+              await this.contextManager.buildContext(conversationId);
 
-        // 3. 保存用户消息。
-        await this.conversationService.addMessage(
-          conversationId,
-          'user',
-          dto.message,
-        );
+            // 3. 保存用户消息。
+            await this.conversationService.addMessage(
+              conversationId,
+              'user',
+              dto.message,
+            );
 
-        // 4. 流式执行 Agentic RAG（含上下文改写、问题分析和检索）。
-        let answerText = '';
-        let lastQueryId = '';
-        let lastCitations: any[] = []; // 引用
-        let didComplete = false;
-        let streamError: string | undefined;
-        let totalIterations = 0;
-        let timeToFirstTextMs: number | undefined;
+            // 4. 流式执行 Agentic RAG（含上下文改写、问题分析和检索）。
+            let answerText = '';
+            let lastQueryId = '';
+            let lastCitations: StreamCitation[] = [];
+            let didComplete = false;
+            let streamError: string | undefined;
+            let totalIterations = 0;
+            let timeToFirstTextMs: number | undefined;
 
-        for await (const event of this.agentOrchestrator.queryStream({
-          question: dto.message,
-          conversationId,
-          userId: req.user.id,
-          context,
-          enableFollowUp: true,
-        })) {
-          subject.next({
-            data: JSON.stringify(event),
-          } as MessageEvent);
+            for await (const event of this.agentOrchestrator.queryStream({
+              question: dto.message,
+              conversationId,
+              userId: req.user.id,
+              context,
+              enableFollowUp: true,
+            })) {
+              // 收集答案信息
+              if (event.type === AguiEventType.TEXT) {
+                timeToFirstTextMs ??= Date.now() - startedAt;
+                answerText += event.content;
+                if (!textStarted) {
+                  writer.write({
+                    type: 'text-start',
+                    id: textPartId,
+                  });
+                  textStarted = true;
+                }
+                writer.write({
+                  type: 'text-delta',
+                  id: textPartId,
+                  delta: event.content,
+                });
+              }
+              if (event.type === AguiEventType.THINKING) {
+                writer.write({
+                  type: 'data-status',
+                  id: 'status',
+                  data: { text: event.content },
+                });
+              }
+              // 检索结果
+              if (event.type === AguiEventType.RETRIEVAL_RESULT) {
+                lastCitations = event.chunks.map((chunk, index) => ({
+                  index: index + 1,
+                  chunkId: chunk.chunkId,
+                  documentId: chunk.documentId,
+                  documentTitle: chunk.documentTitle,
+                  originalFileName: chunk.originalFileName,
+                  fileSize: chunk.fileSize,
+                  content: chunk.content,
+                  score: chunk.similarity,
+                  chunkContent: chunk.content,
+                  heading: null,
+                  similarity: chunk.similarity,
+                }));
+                writer.write({
+                  type: 'data-citations',
+                  id: 'citations',
+                  data: lastCitations,
+                });
+              }
+              if (event.type === AguiEventType.DONE) {
+                lastQueryId = event.queryId;
+                totalIterations = event.totalIterations;
+                didComplete = true;
+              }
+              if (event.type === AguiEventType.ERROR) {
+                streamError = event.message;
+                writer.write({
+                  type: 'error',
+                  errorText: event.message,
+                });
+              }
+            }
 
-          // 收集答案信息
-          if (event.type === AguiEventType.TEXT) {
-            timeToFirstTextMs ??= Date.now() - startedAt;
-            answerText += event.content;
+            if (textStarted) {
+              writer.write({
+                type: 'text-end',
+                id: textPartId,
+              });
+              textStarted = false;
+            }
+            writer.write({
+              type: 'data-status',
+              id: 'status',
+              data: { text: '' },
+            });
+
+            // queryStream 会将 Agent 内部异常转为 ERROR 事件，因此不能仅依赖 catch
+            // 判断请求是否成功；没有 DONE 的流也不能保存为一条正常的助手消息。
+            if (streamError || !didComplete) {
+              this.recordRequestSuccess(span, false, {
+                conversationId,
+                queryId: lastQueryId || undefined,
+                reason: streamError ?? 'stream_completed_without_done',
+                totalMs: Date.now() - startedAt,
+                ...(timeToFirstTextMs !== undefined
+                  ? { timeToFirstTextMs }
+                  : {}),
+              });
+              writer.write({
+                type: 'finish',
+                finishReason: 'error',
+                messageMetadata: { conversationId },
+              });
+              return;
+            }
+
+            // 5. 保存助手消息
+            await this.conversationService.addMessage(
+              conversationId,
+              'assistant',
+              answerText,
+              {
+                citations: lastCitations,
+                queryId: lastQueryId,
+              },
+            );
+
+            this.recordRequestSuccess(span, true, {
+              conversationId,
+              queryId: lastQueryId,
+              totalIterations,
+              totalMs: Date.now() - startedAt,
+              ...(timeToFirstTextMs !== undefined ? { timeToFirstTextMs } : {}),
+            });
+
+            writer.write({
+              type: 'finish',
+              finishReason: 'stop',
+              messageMetadata: {
+                conversationId,
+                queryId: lastQueryId,
+                totalIterations,
+              },
+            });
+
+            // 主请求已成功完成后再异步提交长期记忆，避免 Mem0 网络耗时拖慢
+            // SSE 连接结束。remember 内部负责超时和错误日志，不向主链路抛错。
+            void this.longTermMemoryService.remember(
+              req.user.id,
+              conversationId,
+              [
+                { role: 'user', content: dto.message },
+                { role: 'assistant', content: answerText },
+              ],
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            this.logger.error(`对话流式查询失败: ${message}`);
+            this.recordRequestSuccess(span, false, {
+              reason: message,
+              totalMs: Date.now() - startedAt,
+            });
+            if (textStarted) {
+              writer.write({
+                type: 'text-end',
+                id: textPartId,
+              });
+            }
+            writer.write({
+              type: 'error',
+              errorText: message,
+            });
+            writer.write({
+              type: 'finish',
+              finishReason: 'error',
+            });
           }
-          // 检索结果
-          if (event.type === AguiEventType.RETRIEVAL_RESULT) {
-            lastCitations = event.chunks.map((c: any, i: number) => ({
-              index: i + 1,
-              chunkId: c.chunkId,
-              documentId: c.documentId,
-              documentTitle: c.documentTitle,
-              originalFileName: c.originalFileName,
-              fileSize: c.fileSize,
-              content: c.content,
-              score: c.similarity,
-            }));
-          }
-          if (event.type === AguiEventType.DONE) {
-            lastQueryId = event.queryId;
-            totalIterations = event.totalIterations;
-            didComplete = true;
-          }
-          if (event.type === AguiEventType.ERROR) streamError = event.message;
-        }
-
-        // queryStream 会将 Agent 内部异常转为 ERROR 事件，因此不能仅依赖 catch
-        // 判断请求是否成功；没有 DONE 的流也不能保存为一条正常的助手消息。
-        if (streamError || !didComplete) {
-          this.recordRequestSuccess(span, false, {
-            conversationId,
-            queryId: lastQueryId || undefined,
-            reason: streamError ?? 'stream_completed_without_done',
-            totalMs: Date.now() - startedAt,
-            ...(timeToFirstTextMs !== undefined ? { timeToFirstTextMs } : {}),
-          });
-          return;
-        }
-
-        // 5. 保存助手消息
-        await this.conversationService.addMessage(
-          conversationId,
-          'assistant',
-          answerText,
-          {
-            citations: lastCitations,
-            queryId: lastQueryId,
-          },
-        );
-
-        this.recordRequestSuccess(span, true, {
-          conversationId,
-          queryId: lastQueryId,
-          totalIterations,
-          totalMs: Date.now() - startedAt,
-          ...(timeToFirstTextMs !== undefined ? { timeToFirstTextMs } : {}),
         });
-
-        // 主请求已成功完成后再异步提交长期记忆，避免 Mem0 网络耗时拖慢
-        // SSE 连接结束。remember 内部负责超时和错误日志，不向主链路抛错。
-        void this.longTermMemoryService.remember(req.user.id, conversationId, [
-          { role: 'user', content: dto.message },
-          { role: 'assistant', content: answerText },
-        ]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`对话流式查询失败: ${message}`);
-        this.recordRequestSuccess(span, false, {
-          reason: message,
-          totalMs: Date.now() - startedAt,
-        });
-        subject.next({
-          data: JSON.stringify({
-            type: AguiEventType.ERROR,
-            timestamp: Date.now(),
-            message,
-          }),
-        } as MessageEvent);
-      } finally {
-        subject.complete();
-      }
+      },
+      onError: (error) =>
+        error instanceof Error ? error.message : '对话流式查询失败',
     });
 
-    return subject.asObservable();
+    await pipeUIMessageStreamToResponse({ response, stream });
   }
 
   /**

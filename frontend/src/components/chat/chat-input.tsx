@@ -1,22 +1,23 @@
 'use client';
 
-import { useRef, KeyboardEvent } from 'react';
+import { useRef, useState, KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { useChatStore } from '@/stores/chat.store';
 import { Loader2, Send } from 'lucide-react';
 
 interface ChatInputProps {
-  userId: string;
+  isLoading: boolean;
+  onSend: (text: string) => void;
 }
 
-export function ChatInput({ userId }: ChatInputProps) {
-  const { input, setInput, sendMessage, isLoading } = useChatStore();
+export function ChatInput({ isLoading, onSend }: ChatInputProps) {
+  const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = () => {
     if (input.trim() && !isLoading) {
-      sendMessage(userId);
+      onSend(input.trim());
+      setInput('');
     }
   };
 
@@ -36,7 +37,7 @@ export function ChatInput({ userId }: ChatInputProps) {
       <Textarea
         ref={textareaRef}
         value={input}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(event) => setInput(event.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="输入消息... (Enter 发送)"
         className="min-h-[38px] max-h-[200px] resize-none"

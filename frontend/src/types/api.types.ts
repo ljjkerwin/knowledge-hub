@@ -169,14 +169,6 @@ export interface Message {
 }
 
 /**
- * 聊天请求
- */
-export interface ChatRequest {
-  message: string;
-  conversationId?: string;
-}
-
-/**
  * 用户
  */
 export interface User {

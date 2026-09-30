@@ -4,6 +4,9 @@
   "description": "",
   "author": "",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
@@ -46,6 +49,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/typeorm": "^11.0.3",
     "@opentelemetry/sdk-node": "^0.221.0",
+    "ai": "^7.0.123",
     "amqp-connection-manager": "^5.0.0",
     "amqplib": "^2.0.1",
     "bcryptjs": "^3.0.3",
