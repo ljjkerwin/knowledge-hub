@@ -23,7 +23,7 @@ import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
 import { LongTermMemoryService } from './long-term-memory.service';
 import { ChatDto, ConversationListDto } from './dto/chat.dto';
-import { AguiEventType } from './types/agui.types';
+import { AguiEventType, type AgentWorkflow } from './types/agui.types';
 import type { Citation } from './types/rag.types';
 import { isLangfuseTracingEnabled } from '../langfuse.config';
 
@@ -54,6 +54,7 @@ type KnowledgeUIMessage = UIMessage<
     status: {
       text: string;
     };
+    workflow: AgentWorkflow;
     citations: StreamCitation[];
   }
 >;
@@ -87,6 +88,23 @@ export class RagController {
           const startedAt = Date.now();
           let textStarted = false;
           const textPartId = `text-${startedAt}`;
+          const workflow: AgentWorkflow = {
+            analysis: 'running',
+            rounds: [],
+            generation: 'pending',
+            statusText: '正在分析用户问题...',
+            completed: false,
+          };
+          const writeWorkflow = () => {
+            writer.write({
+              type: 'data-workflow',
+              id: 'workflow',
+              data: {
+                ...workflow,
+                rounds: workflow.rounds.map((round) => ({ ...round })),
+              },
+            });
+          };
           try {
             span.update({ input: { messageLength: dto.message.length } });
             // 1. 获取或创建对话
@@ -121,6 +139,7 @@ export class RagController {
               },
               transient: true,
             });
+            writeWorkflow();
 
             // 2. 在保存当前消息前读取短期历史。长期记忆会在 Agent 完成问题
             // 改写后，与知识库检索并行召回。
@@ -154,6 +173,15 @@ export class RagController {
               if (event.type === AguiEventType.TEXT) {
                 timeToFirstTextMs ??= Date.now() - startedAt;
                 answerText += event.content;
+                if (workflow.generation !== 'running') {
+                  workflow.analysis = 'completed';
+                  workflow.rounds.forEach((round) => {
+                    round.status = 'completed';
+                  });
+                  workflow.generation = 'running';
+                  workflow.statusText = '正在生成回答...';
+                  writeWorkflow();
+                }
                 if (!textStarted) {
                   writer.write({
                     type: 'text-start',
@@ -168,14 +196,55 @@ export class RagController {
                 });
               }
               if (event.type === AguiEventType.THINKING) {
+                workflow.statusText = event.content;
+                writeWorkflow();
                 writer.write({
                   type: 'data-status',
                   id: 'status',
                   data: { text: event.content },
                 });
               }
+              if (event.type === AguiEventType.ANALYSIS) {
+                workflow.analysis = 'completed';
+                writeWorkflow();
+              }
+              if (event.type === AguiEventType.RETRIEVAL_START) {
+                workflow.rounds.forEach((round) => {
+                  round.status = 'completed';
+                });
+                workflow.rounds.push({
+                  iteration: workflow.rounds.length + 1,
+                  source: event.searchType === 'web' ? 'web' : 'knowledge_base',
+                  query: event.query,
+                  status: 'running',
+                });
+                workflow.statusText =
+                  event.searchType === 'web'
+                    ? '正在联网搜索...'
+                    : '正在检索知识库...';
+                writeWorkflow();
+              }
+              if (event.type === AguiEventType.EVIDENCE_ASSESSMENT) {
+                const round = workflow.rounds.at(-1);
+                if (round) {
+                  round.status = 'completed';
+                  round.verdict = event.verdict;
+                }
+                writeWorkflow();
+              }
+              if (event.type === AguiEventType.GENERATION_START) {
+                workflow.analysis = 'completed';
+                workflow.rounds.forEach((round) => {
+                  round.status = 'completed';
+                });
+                workflow.generation = 'running';
+                writeWorkflow();
+              }
               // 检索结果
               if (event.type === AguiEventType.RETRIEVAL_RESULT) {
+                const round = workflow.rounds.at(-1);
+                if (round) round.acceptedCount = event.chunks.length;
+                writeWorkflow();
                 lastCitations = event.chunks.map((chunk, index) => ({
                   index: index + 1,
                   chunkId: chunk.chunkId,
@@ -201,6 +270,14 @@ export class RagController {
                 lastQueryId = event.queryId;
                 totalIterations = event.totalIterations;
                 didComplete = true;
+                workflow.analysis = 'completed';
+                workflow.rounds.forEach((round) => {
+                  round.status = 'completed';
+                });
+                workflow.generation = 'completed';
+                workflow.statusText = '流程完成';
+                workflow.completed = true;
+                writeWorkflow();
               }
               if (event.type === AguiEventType.ERROR) {
                 streamError = event.message;
@@ -252,6 +329,7 @@ export class RagController {
               {
                 citations: lastCitations,
                 queryId: lastQueryId,
+                workflow,
               },
             );
 

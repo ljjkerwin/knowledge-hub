@@ -167,6 +167,7 @@ export interface Message {
   content: string;
   citations?: Citation[];
   queryId?: string;
+  workflow?: import('./workflow.types').AgentWorkflow;
   createdAt: string;
 }
 

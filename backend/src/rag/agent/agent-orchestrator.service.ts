@@ -452,6 +452,14 @@ export class AgentOrchestrator {
           },
           config,
         );
+        this.emit(
+          {
+            type: AguiEventType.GENERATION_START,
+            timestamp: Date.now(),
+            mode: 'direct',
+          },
+          config,
+        );
 
         this.logger.verbose(`[langgraph][directGenerate]`);
 
@@ -679,6 +687,14 @@ export class AgentOrchestrator {
             content: state.acceptedChunks.length
               ? `基于 ${state.acceptedChunks.length} 个有效知识片段生成回答...`
               : '未找到可用知识，正在生成资料不足说明...',
+          },
+          config,
+        );
+        this.emit(
+          {
+            type: AguiEventType.GENERATION_START,
+            timestamp: Date.now(),
+            mode: 'rag',
           },
           config,
         );

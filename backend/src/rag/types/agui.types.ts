@@ -15,6 +15,9 @@ export enum AguiEventType {
   RETRIEVAL_START = 'retrieval_start', // 开始检索
   RETRIEVAL_RESULT = 'retrieval_result', // 检索结果
 
+  // 生成相关
+  GENERATION_START = 'generation_start', // 开始生成回答
+
   // 检索证据评审；用于筛选生成上下文并决定是否补检索。
   EVIDENCE_ASSESSMENT = 'evidence_assessment',
 
@@ -88,6 +91,11 @@ export interface AguiRetrievalResultEvent extends AguiEvent {
   }>;
 }
 
+export interface AguiGenerationStartEvent extends AguiEvent {
+  type: AguiEventType.GENERATION_START;
+  mode: 'direct' | 'rag';
+}
+
 // 检索证据评审事件
 export interface AguiEvidenceAssessmentEvent extends AguiEvent {
   type: AguiEventType.EVIDENCE_ASSESSMENT;
@@ -136,6 +144,7 @@ export type AguiEventUnion =
   | AguiToolResultEvent
   | AguiRetrievalStartEvent
   | AguiRetrievalResultEvent
+  | AguiGenerationStartEvent
   | AguiEvidenceAssessmentEvent
   | AguiErrorEvent
   | AguiDoneEvent
@@ -144,4 +153,22 @@ export type AguiEventUnion =
 // AGUI 流式响应选项
 export interface AguiStreamOptions {
   enableFollowUp?: boolean;
+}
+
+/** 下发给聊天界面的粗粒度 LangGraph 执行轨迹。 */
+export interface AgentWorkflowRound {
+  iteration: number;
+  source: 'knowledge_base' | 'web';
+  query: string;
+  status: 'running' | 'completed';
+  verdict?: 'sufficient' | 'partial' | 'irrelevant' | 'empty';
+  acceptedCount?: number;
+}
+
+export interface AgentWorkflow {
+  analysis: 'running' | 'completed';
+  rounds: AgentWorkflowRound[];
+  generation: 'pending' | 'running' | 'completed';
+  statusText: string;
+  completed: boolean;
 }

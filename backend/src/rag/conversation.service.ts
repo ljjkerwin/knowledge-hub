@@ -5,6 +5,7 @@ import SnowflakeId from 'snowflake-id';
 import { ConversationEntity } from './entities/conversation.entity';
 import { MessageEntity } from './entities/message.entity';
 import { Citation } from './types/rag.types';
+import type { AgentWorkflow } from './types/agui.types';
 
 // 对话列表响应
 export interface ConversationList {
@@ -153,6 +154,7 @@ export class ConversationService {
     metadata?: {
       citations?: Citation[];
       queryId?: string;
+      workflow?: AgentWorkflow;
     },
   ): Promise<MessageEntity> {
     const message = this.em.create(MessageEntity, {
@@ -162,6 +164,7 @@ export class ConversationService {
       content,
       citations: metadata?.citations,
       queryId: metadata?.queryId,
+      workflow: metadata?.workflow,
     });
 
     await this.em.save(message);

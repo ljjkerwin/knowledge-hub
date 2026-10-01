@@ -6,6 +6,7 @@ import {
   getMessageCitations,
   getMessageStatus,
   getMessageText,
+  getMessageWorkflow,
   type KnowledgeUIMessage,
 } from "@/types/chat.types";
 import {
@@ -23,6 +24,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { MarkdownContent } from "./markdown-content";
 import Link from "next/link";
+import { WorkflowProgress } from "./workflow-progress";
 
 interface MessageBubbleProps {
   message: KnowledgeUIMessage;
@@ -34,6 +36,7 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
   const content = getMessageText(message);
   const citations = getMessageCitations(message);
   const status = getMessageStatus(message);
+  const workflow = getMessageWorkflow(message);
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
@@ -44,9 +47,11 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
       </Avatar>
 
       <div
-        className={`flex flex-col gap-2 max-w-[80%] ${isUser ? "items-end" : "items-start"}`}
+        className={`flex max-w-[80%] flex-col gap-2 ${isUser ? "items-end" : "w-full items-start"}`}
       >
-        {isStreaming && status && (
+        {!isUser && workflow && <WorkflowProgress workflow={workflow} />}
+
+        {isStreaming && status && !workflow && (
           <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
             <span className="italic">{status}</span>
@@ -59,7 +64,7 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
               isUser ? "bg-primary text-primary-foreground" : "bg-card"
             }`}
           >
-            <MarkdownContent content={content} />
+            <MarkdownContent content={content} citations={citations} />
             {isStreaming && !isUser && (
               <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-primary" />
             )}

@@ -1,16 +1,38 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { Citation } from '@/types/api.types';
 
 interface MarkdownContentProps {
   content: string;
   className?: string;
+  citations?: Citation[];
 }
 
-export function MarkdownContent({ content, className }: MarkdownContentProps) {
+interface MarkdownNode {
+  type: string;
+  value?: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: MarkdownNode[];
+}
+
+interface CitationTarget {
+  href: string;
+  title: string;
+}
+
+export function MarkdownContent({
+  content,
+  className,
+  citations = [],
+}: MarkdownContentProps) {
+  const citationLinksPlugin = createCitationLinksPlugin(citations);
+
   return (
     <div className={`text-sm leading-6 break-words ${className ?? ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[citationLinksPlugin]}
         components={{
           h1: ({ children }) => <h1 className="mb-3 text-xl font-bold">{children}</h1>,
           h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold">{children}</h2>,
@@ -24,16 +46,24 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
               {children}
             </blockquote>
           ),
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2 hover:opacity-80"
-            >
-              {children}
-            </a>
-          ),
+          a: ({ href, children, title }) => {
+            const isCitation = /^\[\d+\]$/.test(String(children));
+            return (
+              <a
+                href={href}
+                title={title}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={
+                  isCitation
+                    ? 'mx-0.5 inline-flex align-super text-[0.75em] font-semibold leading-none text-primary no-underline hover:underline'
+                    : 'underline underline-offset-2 hover:opacity-80'
+                }
+              >
+                {children}
+              </a>
+            );
+          },
           pre: ({ children }) => (
             <pre className="my-2 overflow-x-auto rounded-md bg-black/10 p-3 text-xs leading-5 last:mb-0">
               {children}
@@ -58,4 +88,78 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
       </ReactMarkdown>
     </div>
   );
+}
+
+function createCitationLinksPlugin(citations: Citation[]) {
+  const targets = new Map<number, CitationTarget>();
+  citations.forEach((citation, position) => {
+    const index = citation.index || position + 1;
+    const fileName = citation.originalFileName || citation.documentTitle;
+    const isWebSource =
+      citation.sourceType === 'web' && Boolean(citation.sourceUrl);
+    targets.set(index, {
+      href: isWebSource
+        ? citation.sourceUrl!
+        : `/documents/${citation.documentId}?citation=${encodeURIComponent(citation.chunkId)}`,
+      title: `打开引用 [${index}]：${fileName}`,
+    });
+  });
+
+  return () => (tree: unknown) => {
+    transformCitationText(tree as MarkdownNode, targets);
+  };
+}
+
+function transformCitationText(
+  node: MarkdownNode,
+  targets: ReadonlyMap<number, CitationTarget>,
+): void {
+  if (!node.children?.length) return;
+  if (
+    node.type === 'element' &&
+    ['a', 'code', 'pre'].includes(node.tagName ?? '')
+  ) {
+    return;
+  }
+
+  node.children = node.children.flatMap((child) => {
+    if (child.type !== 'text' || !child.value) {
+      transformCitationText(child, targets);
+      return child;
+    }
+    return splitCitationText(child.value, targets);
+  });
+}
+
+function splitCitationText(
+  value: string,
+  targets: ReadonlyMap<number, CitationTarget>,
+): MarkdownNode[] {
+  const nodes: MarkdownNode[] = [];
+  const citationPattern = /\[(\d+)\]/g;
+  let cursor = 0;
+
+  for (const match of value.matchAll(citationPattern)) {
+    const matchIndex = match.index;
+    const citationIndex = Number(match[1]);
+    const target = targets.get(citationIndex);
+    if (!target) continue;
+
+    if (matchIndex > cursor) {
+      nodes.push({ type: 'text', value: value.slice(cursor, matchIndex) });
+    }
+    nodes.push({
+      type: 'element',
+      tagName: 'a',
+      properties: { href: target.href, title: target.title },
+      children: [{ type: 'text', value: match[0] }],
+    });
+    cursor = matchIndex + match[0].length;
+  }
+
+  if (cursor === 0) return [{ type: 'text', value }];
+  if (cursor < value.length) {
+    nodes.push({ type: 'text', value: value.slice(cursor) });
+  }
+  return nodes;
 }

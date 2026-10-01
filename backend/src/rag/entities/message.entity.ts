@@ -7,6 +7,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ConversationEntity } from './conversation.entity';
+import type { AgentWorkflow } from '../types/agui.types';
 
 @Entity('kh_message')
 export class MessageEntity {
@@ -27,6 +28,9 @@ export class MessageEntity {
 
   @Column({ name: 'query_id', type: 'varchar', length: 100, nullable: true })
   queryId: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  workflow: AgentWorkflow | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

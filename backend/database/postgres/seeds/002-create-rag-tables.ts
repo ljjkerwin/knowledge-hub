@@ -38,6 +38,7 @@ const statements = [
       content TEXT NOT NULL,
       citations JSONB,
       query_id VARCHAR,
+      workflow JSONB,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT kh_message_role_check CHECK (role IN ('user', 'assistant', 'system'))
     )
