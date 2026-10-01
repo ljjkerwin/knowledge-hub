@@ -2,6 +2,7 @@ import { SearchType } from '../types/search.types';
 import {
   buildRetrievalStrategy,
   isExternalContentSafetyQuestion,
+  QuestionAnalyzer,
   QueryIntent,
 } from './question-analyzer.service';
 
@@ -13,7 +14,10 @@ describe('QuestionAnalyzer retrieval strategy', () => {
   ) => buildRetrievalStrategy(intent, question, originalQuestion, 5);
 
   it('uses keyword-boosted hybrid retrieval for acronyms inside a natural-language question', () => {
-    const strategy = select(QueryIntent.FACTUAL, 'OA 未备案的机票有什么后果？');
+    const strategy = select(
+      QueryIntent.KNOWLEDGE_BASE,
+      'OA 未备案的机票有什么后果？',
+    );
 
     expect(strategy.searchType).toBe(SearchType.HYBRID);
     expect(strategy.sourceWeights.keyword).toBeGreaterThan(
@@ -23,7 +27,7 @@ describe('QuestionAnalyzer retrieval strategy', () => {
   });
 
   it('keeps keyword-only retrieval for a pure identifier', () => {
-    const strategy = select(QueryIntent.FACTUAL, 'SOP-PE-2026-003');
+    const strategy = select(QueryIntent.KNOWLEDGE_BASE, 'SOP-PE-2026-003');
 
     expect(strategy.searchType).toBe(SearchType.KEYWORD);
     expect(strategy.useKnowledgeGraph).toBe(false);
@@ -31,7 +35,7 @@ describe('QuestionAnalyzer retrieval strategy', () => {
 
   it('keeps knowledge graph enabled when an acronym appears in a relation question', () => {
     const strategy = select(
-      QueryIntent.FACTUAL,
+      QueryIntent.KNOWLEDGE_BASE,
       'SRE 值班工程师的职责是什么？',
     );
 
@@ -42,7 +46,7 @@ describe('QuestionAnalyzer retrieval strategy', () => {
 
   it('uses the original question to retain relation signals lost during rewriting', () => {
     const strategy = select(
-      QueryIntent.FACTUAL,
+      QueryIntent.KNOWLEDGE_BASE,
       '财务审核员的工作内容是什么？',
       '财务审核员负责什么？',
     );
@@ -62,3 +66,62 @@ describe('QuestionAnalyzer retrieval strategy', () => {
     expect(isExternalContentSafetyQuestion('如何申请出差报销？')).toBe(false);
   });
 });
+
+describe('QuestionAnalyzer four-way routing', () => {
+  it.each([
+    [QueryIntent.PERSONAL_PREFERENCE, false, false],
+    [QueryIntent.WEB, true, false],
+    [QueryIntent.KNOWLEDGE_BASE, true, true],
+  ] as const)(
+    'derives retrieval behavior from %s instead of a model boolean',
+    async (intent, needsRetrieval, hasStrategy) => {
+      const analyzer = createAnalyzer(intent);
+
+      const result = await analyzer.analyze({
+        question: '请处理这个测试问题',
+        context: { history: [], conversationId: 'conversation-1' },
+      });
+
+      expect(result.intent).toBe(intent);
+      expect(result.needsRetrieval).toBe(needsRetrieval);
+      expect(Boolean(result.strategy)).toBe(hasStrategy);
+      if (!hasStrategy) {
+        expect(result.expandedQueries).toEqual([]);
+        expect(result.entityTerms).toEqual([]);
+      }
+    },
+  );
+
+  it('keeps simple chitchat on the direct route without calling the model', async () => {
+    const invoke = jest.fn();
+    const analyzer = createAnalyzer(QueryIntent.KNOWLEDGE_BASE, invoke);
+
+    const result = await analyzer.analyze({
+      question: '你好',
+      context: { history: [], conversationId: 'conversation-1' },
+    });
+
+    expect(result.intent).toBe(QueryIntent.CHITCHAT);
+    expect(result.needsRetrieval).toBe(false);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+function createAnalyzer(
+  intent: QueryIntent,
+  invoke = jest.fn().mockResolvedValue({
+    rewritten: '请处理这个测试问题',
+    intent,
+    expandedQueries: ['模型生成的扩展词'],
+    entityTerms: ['模型生成的实体词'],
+  }),
+): QuestionAnalyzer {
+  return new QuestionAnalyzer(
+    {
+      create: jest.fn(() => ({
+        withStructuredOutput: jest.fn(() => ({ invoke })),
+      })),
+    } as never,
+    { get: jest.fn((_key: string, fallback: unknown) => fallback) } as never,
+  );
+}

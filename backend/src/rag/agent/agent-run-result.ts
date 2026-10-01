@@ -53,7 +53,7 @@ export interface AgentRunInput extends AguiStreamOptions {
   queryId?: string;
 }
 
-export type AgentRoute = 'direct' | 'rag' | 'unknown';
+export type AgentRoute = 'direct' | 'rag' | 'web' | 'unknown';
 
 export interface AgentRunResult {
   queryId: string;
@@ -67,13 +67,23 @@ export interface AgentRunResult {
     entityTerms: string[];
   }>;
   retrievalQueries: string[];
-  draftAssessments: Array<{
-    answerRelevance: number;
-    answerCompleteness: number;
+  retrievalAttempts: Array<{
+    query: string;
+    searchType: string;
+  }>;
+  evidenceAssessments: Array<{
+    verdict: 'sufficient' | 'partial' | 'irrelevant' | 'empty';
+    usableChunkIds: string[];
+    missingAspects: string[];
     shouldRetrieveMore: boolean;
+    needsWebSearch: boolean;
+    nextSearchSource: 'knowledge_base' | 'web' | 'none';
+    nextQuery?: string;
+    webSearchQuery?: string;
   }>;
   /**
-   * 每轮生成实际使用的完整上下文，只在离线评估结果中提供。
+   * 最终生成实际使用的完整上下文快照，只在离线评估结果中提供。
+   * 当前证据优先流程只生成一次；保留数组结构以兼容既有评估报告。
    * 注意：内容可能含有内部知识，结果文件应按相同数据分级保护。
    */
   generationContexts: Array<{
@@ -102,7 +112,9 @@ export class AgentRunResultCollector {
   private citations: Citation[] = [];
   private readonly analyses: AgentRunResult['analyses'] = [];
   private readonly retrievalQueries: string[] = [];
-  private readonly draftAssessments: AgentRunResult['draftAssessments'] = [];
+  private readonly retrievalAttempts: AgentRunResult['retrievalAttempts'] = [];
+  private readonly evidenceAssessments: AgentRunResult['evidenceAssessments'] =
+    [];
   private readonly generationContexts: AgentRunResult['generationContexts'] =
     [];
   private finalGenerationContext: RetrievedChunk[] = [];
@@ -133,7 +145,12 @@ export class AgentRunResultCollector {
         this.finalGenerationContext = this.snapshotChunks(event.chunks);
         break;
       case AguiEventType.ANALYSIS:
-        this.route = event.needsRetrieval ? 'rag' : 'direct';
+        this.route =
+          event.intent === 'web'
+            ? 'web'
+            : event.needsRetrieval
+              ? 'rag'
+              : 'direct';
         this.analyses.push({
           rewritten: event.rewritten,
           intent: event.intent,
@@ -142,8 +159,14 @@ export class AgentRunResultCollector {
         });
         break;
       case AguiEventType.RETRIEVAL_START:
-        this.route = 'rag';
+        if (this.route === 'unknown') {
+          this.route = event.searchType === 'web' ? 'web' : 'rag';
+        }
         this.retrievalQueries.push(event.query);
+        this.retrievalAttempts.push({
+          query: event.query,
+          searchType: event.searchType,
+        });
         break;
       case AguiEventType.RETRIEVAL_RESULT:
         this.citations = event.chunks.map((chunk, index) => ({
@@ -156,13 +179,22 @@ export class AgentRunResultCollector {
           chunkContent: chunk.content,
           heading: null,
           similarity: chunk.similarity,
+          ...(chunk.sourceType ? { sourceType: chunk.sourceType } : {}),
+          ...(chunk.sourceUrl ? { sourceUrl: chunk.sourceUrl } : {}),
         }));
         break;
-      case AguiEventType.DRAFT_ASSESSMENT:
-        this.draftAssessments.push({
-          answerRelevance: event.answerRelevance,
-          answerCompleteness: event.answerCompleteness,
+      case AguiEventType.EVIDENCE_ASSESSMENT:
+        this.evidenceAssessments.push({
+          verdict: event.verdict,
+          usableChunkIds: [...event.usableChunkIds],
+          missingAspects: [...event.missingAspects],
           shouldRetrieveMore: event.shouldRetrieveMore,
+          needsWebSearch: event.needsWebSearch,
+          nextSearchSource: event.nextSearchSource,
+          ...(event.nextQuery ? { nextQuery: event.nextQuery } : {}),
+          ...(event.webSearchQuery
+            ? { webSearchQuery: event.webSearchQuery }
+            : {}),
         });
         break;
       case AguiEventType.TEXT:
@@ -187,7 +219,8 @@ export class AgentRunResultCollector {
       citations: this.citations,
       analyses: this.analyses,
       retrievalQueries: this.retrievalQueries,
-      draftAssessments: this.draftAssessments,
+      retrievalAttempts: this.retrievalAttempts,
+      evidenceAssessments: this.evidenceAssessments,
       generationContexts: this.generationContexts,
       finalGenerationContext: this.finalGenerationContext,
       totalIterations: this.totalIterations,

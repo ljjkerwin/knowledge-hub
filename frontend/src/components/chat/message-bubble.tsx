@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
+  Globe2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { MarkdownContent } from "./markdown-content";
@@ -89,14 +90,23 @@ function CitationBadge({
   index: number;
 }) {
   const fileName = citation.originalFileName || citation.documentTitle;
-  const { Icon, iconClassName } = getFilePresentation(fileName);
+  const isWebSource = citation.sourceType === "web" && Boolean(citation.sourceUrl);
+  const { Icon, iconClassName } = isWebSource
+    ? { Icon: Globe2, iconClassName: "bg-blue-100 text-blue-700" }
+    : getFilePresentation(fileName);
+  const href = isWebSource
+    ? citation.sourceUrl!
+    : `/documents/${citation.documentId}?citation=${encodeURIComponent(citation.chunkId)}`;
+  const sourceDetail = isWebSource
+    ? getWebSourceLabel(citation.sourceUrl!)
+    : formatFileSize(citation.fileSize);
 
   return (
     <Link
-      href={`/documents/${citation.documentId}?citation=${encodeURIComponent(citation.chunkId)}`}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
-      title={`打开阅读页：${fileName}`}
+      title={isWebSource ? `打开网页：${fileName}` : `打开阅读页：${fileName}`}
       className="group flex min-w-0 max-w-full items-center gap-2 rounded-lg border bg-card px-2.5 py-2 text-left shadow-sm transition-colors hover:bg-muted/60"
     >
       <span className={`flex size-8 shrink-0 items-center justify-center rounded-md ${iconClassName}`}>
@@ -107,11 +117,19 @@ function CitationBadge({
           [{index}] {fileName}
         </span>
         <span className="block text-[11px] text-muted-foreground">
-          {formatFileSize(citation.fileSize)}
+          {sourceDetail}
         </span>
       </span>
     </Link>
   );
+}
+
+function getWebSourceLabel(sourceUrl: string): string {
+  try {
+    return new URL(sourceUrl).hostname;
+  } catch {
+    return "网页来源";
+  }
 }
 
 function getFilePresentation(fileName: string): {

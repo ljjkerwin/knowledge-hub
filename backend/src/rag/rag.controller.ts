@@ -188,6 +188,8 @@ export class RagController {
                   chunkContent: chunk.content,
                   heading: null,
                   similarity: chunk.similarity,
+                  sourceType: chunk.sourceType,
+                  sourceUrl: chunk.sourceUrl,
                 }));
                 writer.write({
                   type: 'data-citations',

@@ -151,7 +151,7 @@ LLM Judge。它对每个案例报告 `answer_relevancy`，并使用本次实际�
 
 - `input.question`：本轮问题。
 - `input.context`：可选的 `history` 与 `summary`，用于多轮测试。
-- `expected.route`：`direct` 或 `rag`。
+- `expected.route`：`direct`（闲聊/个人偏好）、`rag`（知识库）或 `web`（纯联网）。
 - `expected.relevantDocumentIds`：应召回的文档；生成 retrieval recall 与 citation precision。
 - `expected.relevantChunkIds`：可选的证据块金标；用于后续 chunk 级检索指标。
 - `expected.referenceAnswer`：可选的业务金标回复，供人工或 LLM Judge 判断语义正确性与完整性；不得用逐字匹配作为门禁。

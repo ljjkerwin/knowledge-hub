@@ -4,13 +4,14 @@ import { ElasticsearchModule } from '@nestjs/elasticsearch';
 import { LlmModule } from '../llm/llm.module';
 import { EmbeddingService } from '../pipeline/embedding.service';
 import { AgentOrchestrator } from '../rag/agent/agent-orchestrator.service';
-import { DraftAssessmentService } from '../rag/agent/answer-evaluator.service';
+import { EvidenceAssessmentService } from '../rag/agent/answer-evaluator.service';
 import { QuestionAnalyzer } from '../rag/agent/question-analyzer.service';
 import { FusionService } from '../rag/fusion.service';
 import { GenerationService } from '../rag/generation.service';
 import { GraphRetrievalService } from '../rag/graph-retrieval.service';
 import { RerankerService } from '../rag/reranker.service';
 import { RetrievalService } from '../rag/retrieval.service';
+import { WebSearchService } from '../rag/web-search.service';
 import { EvaluationJudgeService } from './evaluation-judge.service';
 
 /**
@@ -47,9 +48,10 @@ import { EvaluationJudgeService } from './evaluation-judge.service';
     RerankerService,
     GenerationService,
     QuestionAnalyzer,
-    DraftAssessmentService,
+    EvidenceAssessmentService,
     EvaluationJudgeService,
     AgentOrchestrator,
+    WebSearchService,
   ],
   exports: [AgentOrchestrator, EvaluationJudgeService],
 })

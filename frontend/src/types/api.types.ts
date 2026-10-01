@@ -142,6 +142,8 @@ export interface Citation {
   content: string;
   score: number;
   metadata?: Record<string, unknown>;
+  sourceType?: "knowledge_base" | "web";
+  sourceUrl?: string;
 }
 
 /**

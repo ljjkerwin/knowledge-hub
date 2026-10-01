@@ -45,7 +45,8 @@ export class GenerationService {
       this.logger.log('答案生成完成：' + answer);
       return { answer, citations };
     } catch (error) {
-      this.logger.error(`答案生成失败: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`答案生成失败: ${message}`);
       throw error;
     }
   }
@@ -54,20 +55,21 @@ export class GenerationService {
   async *generateDirectStream(
     query: string,
     conversationContext?: ConversationContext,
-  ): AsyncGenerator<{ type: string; content: any }> {
+  ): AsyncGenerator<{ type: 'token' | 'error'; content: string }> {
     try {
       const stream = await this.llm.stream([
         new SystemMessage(this.getDirectSystemPrompt()),
         new HumanMessage(this.buildDirectPrompt(query, conversationContext)),
       ]);
       for await (const chunk of stream) {
-        if (chunk.content) {
+        if (typeof chunk.content === 'string' && chunk.content) {
           yield { type: 'token', content: chunk.content };
         }
       }
     } catch (error) {
-      this.logger.error(`普通对话流式生成失败: ${error.message}`);
-      yield { type: 'error', content: error.message };
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`普通对话流式生成失败: ${message}`);
+      yield { type: 'error', content: message };
     }
   }
 
@@ -167,8 +169,9 @@ export class GenerationService {
       .map((chunk, index) => {
         const citationNum = index + 1;
         const heading = chunk.heading ? ` [${chunk.heading}]` : '';
+        const source = chunk.sourceUrl ? `\n网页：${chunk.sourceUrl}` : '';
         return `### 参考资料 [${citationNum}]${heading}
-文档：${chunk.documentTitle}
+文档：${chunk.documentTitle}${source}
 内容：${chunk.content}`;
       })
       .join('\n\n');
@@ -207,6 +210,8 @@ ${query}
         (chunk.content.length > 200 ? '...' : ''),
       heading: chunk.heading,
       similarity: chunk.similarity,
+      sourceType: chunk.sourceType ?? 'knowledge_base',
+      sourceUrl: chunk.sourceUrl,
     }));
   }
 }

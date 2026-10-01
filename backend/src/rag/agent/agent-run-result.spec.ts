@@ -34,7 +34,7 @@ describe('AgentRunResultCollector', () => {
         type: AguiEventType.ANALYSIS,
         timestamp: 1_010,
         rewritten: '差旅报销流程是什么？',
-        intent: 'procedural',
+        intent: 'knowledge_base',
         needsRetrieval: true,
         entityTerms: ['差旅报销'],
       },
@@ -67,11 +67,15 @@ describe('AgentRunResultCollector', () => {
     );
     collector.consume(
       {
-        type: AguiEventType.DRAFT_ASSESSMENT,
+        type: AguiEventType.EVIDENCE_ASSESSMENT,
         timestamp: 1_040,
-        answerRelevance: 0.9,
-        answerCompleteness: 0.8,
+        verdict: 'sufficient',
+        usableChunkIds: ['chunk_1'],
+        coveredAspects: ['申请流程'],
+        missingAspects: [],
         shouldRetrieveMore: false,
+        needsWebSearch: false,
+        nextSearchSource: 'none',
       },
       1_040,
     );
@@ -131,17 +135,23 @@ describe('AgentRunResultCollector', () => {
       analyses: [
         {
           rewritten: '差旅报销流程是什么？',
-          intent: 'procedural',
+          intent: 'knowledge_base',
           needsRetrieval: true,
           entityTerms: ['差旅报销'],
         },
       ],
       retrievalQueries: ['差旅报销流程是什么？'],
-      draftAssessments: [
+      retrievalAttempts: [
+        { query: '差旅报销流程是什么？', searchType: 'hybrid' },
+      ],
+      evidenceAssessments: [
         {
-          answerRelevance: 0.9,
-          answerCompleteness: 0.8,
+          verdict: 'sufficient',
+          usableChunkIds: ['chunk_1'],
+          missingAspects: [],
           shouldRetrieveMore: false,
+          needsWebSearch: false,
+          nextSearchSource: 'none',
         },
       ],
       generationContexts: [

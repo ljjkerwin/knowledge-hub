@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const ALLOWED_ROUTES = new Set(['direct', 'rag']);
+const ALLOWED_ROUTES = new Set(['direct', 'rag', 'web']);
 const ALLOWED_SPLITS = new Set(['smoke', 'dev', 'test']);
 
 export async function loadDataset(filePath) {
@@ -51,7 +51,7 @@ function validateRow(row, lineNumber, errors) {
   }
   if (!isRecord(row.expected)) at('expected must be an object');
   if (!ALLOWED_ROUTES.has(row.expected?.route)) {
-    at('expected.route must be "direct" or "rag"');
+    at('expected.route must be "direct", "rag", or "web"');
   }
 
   validateStringArray(

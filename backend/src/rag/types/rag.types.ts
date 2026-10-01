@@ -10,11 +10,14 @@ export interface RetrievedChunk {
   chunkIndex: number;
   totalChunks: number;
   similarity: number;
+  sourceType?: 'knowledge_base' | 'web';
+  sourceUrl?: string;
   metadata: {
     categoryId?: string;
     authorId?: string;
     teamId?: string;
     publishTime?: string;
+    siteName?: string;
   };
 }
 
@@ -29,6 +32,8 @@ export interface Citation {
   chunkContent: string;
   heading: string | null;
   similarity: number;
+  sourceType?: 'knowledge_base' | 'web';
+  sourceUrl?: string;
 }
 
 // 生成的答案

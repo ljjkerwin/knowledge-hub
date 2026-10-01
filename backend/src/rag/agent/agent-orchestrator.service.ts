@@ -10,8 +10,10 @@ import {
   RetrievalStrategy,
 } from './question-analyzer.service';
 import {
-  DraftAssessment,
-  DraftAssessmentService,
+  EvidenceAssessment,
+  EvidenceAssessmentService,
+  RetrievalSource,
+  SearchAttempt,
 } from './answer-evaluator.service';
 import { RetrievalService } from '../retrieval.service';
 import { GraphRetrievalService } from '../graph-retrieval.service';
@@ -38,6 +40,7 @@ import { LongTermMemoryService } from '../long-term-memory.service';
 import { CallbackHandler } from '@langfuse/langchain';
 import { isLangfuseTracingEnabled } from '../../langfuse.config';
 import { startActiveObservation } from '@langfuse/tracing';
+import { WebSearchService } from '../web-search.service';
 
 interface WeightedQuery {
   query: string;
@@ -60,13 +63,14 @@ const AgentState = Annotation.Root({
   iteration: Annotation<number>,
   completedIterations: Annotation<number>,
   analysis: Annotation<AnalyzedQuestion | undefined>,
-  allChunks: Annotation<RetrievedChunk[]>,
-  draft: Annotation<GeneratedAnswer | undefined>,
-  bestAnswer: Annotation<GeneratedAnswer | undefined>,
-  /** 当前最佳草稿生成时实际使用的完整上下文。 */
-  bestContext: Annotation<RetrievedChunk[]>,
-  bestRelevance: Annotation<number>,
-  draftAssessment: Annotation<DraftAssessment | undefined>,
+  /** 当前一轮尚未评审的原始召回结果。 */
+  currentChunks: Annotation<RetrievedChunk[]>,
+  /** 已通过证据评审、允许进入最终生成上下文的累计片段。 */
+  acceptedChunks: Annotation<RetrievedChunk[]>,
+  searchHistory: Annotation<SearchAttempt[]>,
+  retrievalSource: Annotation<RetrievalSource>,
+  evidenceAssessment: Annotation<EvidenceAssessment | undefined>,
+  finalAnswer: Annotation<GeneratedAnswer | undefined>,
   shouldContinue: Annotation<boolean>,
 });
 
@@ -81,6 +85,7 @@ export interface QueryStreamInput extends AgentRunInput {
 @Injectable()
 export class AgentOrchestrator {
   private readonly logger = new Logger(AgentOrchestrator.name);
+  /** 内部知识库与联网搜索共用预算，合计最多执行三轮。 */
   private readonly maxIterations: number;
   /** 跨轮检索结果累计后，允许进入生成上下文的最大片段数。 */
   private readonly maxAccumulatedContextChunks: number;
@@ -94,11 +99,17 @@ export class AgentOrchestrator {
     private readonly fusionService: FusionService,
     private readonly rerankerService: RerankerService,
     private readonly generationService: GenerationService,
-    private readonly draftAssessmentService: DraftAssessmentService,
+    private readonly evidenceAssessmentService: EvidenceAssessmentService,
     private readonly longTermMemoryService: LongTermMemoryService,
+    private readonly webSearchService: WebSearchService,
     private readonly config: ConfigService,
   ) {
-    this.maxIterations = Number(this.config.get('RAG_MAX_ITERATIONS', 3));
+    const configuredMaxIterations = Number(
+      this.config.get('RAG_MAX_ITERATIONS', 3),
+    );
+    this.maxIterations = Number.isFinite(configuredMaxIterations)
+      ? Math.min(3, Math.max(1, Math.floor(configuredMaxIterations)))
+      : 3;
     this.maxAccumulatedContextChunks = Number(
       this.config.get('RAG_MAX_CONTEXT_CHUNKS', 12),
     );
@@ -241,9 +252,7 @@ export class AgentOrchestrator {
       ),
     ).slice(0, 4);
     const shouldDecompose =
-      entityQueries.length >= 2 &&
-      (analysis.intent === QueryIntent.COMPARATIVE ||
-        strategy.useKnowledgeGraph);
+      entityQueries.length >= 2 && strategy.useKnowledgeGraph;
     const baseRewrittenWeight = shouldDecompose ? 0.45 : 0.75;
     const entityTotalWeight = shouldDecompose ? 0.3 : 0;
 
@@ -312,6 +321,68 @@ export class AgentOrchestrator {
     return chunks.slice(0, Math.max(1, limit));
   }
 
+  /** 阻止只换措辞、未改变检索空间的补充查询。 */
+  private isNovelRetrievalQuery(
+    candidate: string,
+    searchHistory: SearchAttempt[],
+    source: RetrievalSource,
+  ): boolean {
+    const normalizedCandidate = this.normalizeQuery(candidate);
+    if (!normalizedCandidate) return false;
+
+    return searchHistory
+      .filter((attempt) => attempt.source === source)
+      .every((attempt) => {
+        const normalizedSearched = this.normalizeQuery(attempt.query);
+        if (!normalizedSearched || normalizedCandidate === normalizedSearched)
+          return false;
+
+        const shorterLength = Math.min(
+          normalizedCandidate.length,
+          normalizedSearched.length,
+        );
+        const longerLength = Math.max(
+          normalizedCandidate.length,
+          normalizedSearched.length,
+        );
+        const isNearContainment =
+          shorterLength / longerLength >= 0.75 &&
+          (normalizedCandidate.includes(normalizedSearched) ||
+            normalizedSearched.includes(normalizedCandidate));
+        if (isNearContainment) return false;
+
+        return (
+          this.bigramSimilarity(normalizedCandidate, normalizedSearched) < 0.85
+        );
+      });
+  }
+
+  private normalizeQuery(query: string): string {
+    return query
+      .normalize('NFKC')
+      .toLocaleLowerCase()
+      .replace(/[与及]/g, '和')
+      .replace(/[\p{P}\p{S}\s]/gu, '');
+  }
+
+  private bigramSimilarity(left: string, right: string): number {
+    const toBigrams = (value: string): Set<string> => {
+      if (value.length < 2) return new Set([value]);
+      return new Set(
+        Array.from({ length: value.length - 1 }, (_, index) =>
+          value.slice(index, index + 2),
+        ),
+      );
+    };
+    const leftBigrams = toBigrams(left);
+    const rightBigrams = toBigrams(right);
+    const intersection = Array.from(leftBigrams).filter((item) =>
+      rightBigrams.has(item),
+    ).length;
+    const union = new Set([...leftBigrams, ...rightBigrams]).size;
+    return union ? intersection / union : 1;
+  }
+
   /** 业务节点写入 custom stream，queryStream 仅负责映射到 SSE。 */
   private emit(
     event: AgentExecutionEvent,
@@ -364,6 +435,8 @@ export class AgentOrchestrator {
         return {
           analysis,
           retrievalQuestion: analysis.rewritten,
+          retrievalSource:
+            analysis.intent === QueryIntent.WEB ? 'web' : 'knowledge_base',
           // 只在首轮固定答案目标，避免后续追问覆盖用户的原始意图。
           answerQuestion:
             state.iteration === 1 ? analysis.rewritten : state.answerQuestion,
@@ -390,7 +463,9 @@ export class AgentOrchestrator {
           : [];
 
         // log处长期记忆
-        this.logger.verbose(`[longTermMemories] ${state.answerQuestion} : ${longTermMemories}`);
+        this.logger.verbose(
+          `[longTermMemories] ${state.answerQuestion} : ${longTermMemories.join(' | ')}`,
+        );
 
         const context = { ...state.context, longTermMemories };
 
@@ -420,23 +495,38 @@ export class AgentOrchestrator {
         );
         return {};
       })
-      // 跨轮合并、去重并限制上下文大小，避免生成提示词无限增长。
+      // 每轮只负责召回；是否进入最终上下文由后续证据评审决定。
       .addNode('retrieve', async (state: AgentStateValue, config) => {
         const { analysis } = state;
-        const strategy = analysis!.strategy!;
+        if (!analysis) {
+          throw new Error('检索分支缺少问题分析。');
+        }
+        if (state.retrievalSource === 'knowledge_base' && !analysis.strategy) {
+          throw new Error('知识库检索分支缺少检索策略。');
+        }
+        const query = state.retrievalQuestion;
         this.emit(
           {
             type: AguiEventType.RETRIEVAL_START,
             timestamp: Date.now(),
-            query: analysis!.rewritten,
-            searchType: strategy!.searchType,
+            query,
+            searchType:
+              state.retrievalSource === 'web'
+                ? 'web'
+                : analysis.strategy!.searchType,
           },
           config,
         );
         // 首轮问题改写完成后，同时检索知识库与 Mem0。后续补充检索复用
-        // 已召回的长期记忆，避免一次回答反复请求 Mem0。
+        // 已召回的长期记忆，并且不再混入原始 query，避免重复召回。
         const [chunks, longTermMemories] = await Promise.all([
-          this.executeRetrieval(analysis!, strategy!, state.originalQuestion),
+          state.retrievalSource === 'web'
+            ? this.webSearchService.search(query)
+            : this.executeRetrieval(
+                { ...analysis, rewritten: query },
+                analysis.strategy!,
+                state.iteration === 1 ? state.originalQuestion : undefined,
+              ),
           state.iteration === 1 && state.userId
             ? this.longTermMemoryService.recall(
                 state.userId,
@@ -449,52 +539,155 @@ export class AgentOrchestrator {
           `[retrieve][chunks] ${JSON.stringify(chunks, null, 2)}`,
         );
 
-        const allChunks = this.takeTopAccumulatedChunks(
-          this.mergeChunks(state.allChunks, chunks),
+        return {
+          currentChunks: chunks,
+          searchHistory: [
+            ...state.searchHistory,
+            { source: state.retrievalSource, query },
+          ],
+          completedIterations: state.iteration,
+          context: { ...state.context, longTermMemories },
+        };
+      })
+      // 先筛选证据，再决定继续内部检索、切换联网搜索或进入最终生成。
+      .addNode('assessEvidence', async (state: AgentStateValue, config) => {
+        this.emit(
+          {
+            type: AguiEventType.THINKING,
+            timestamp: Date.now(),
+            content: `正在评估第 ${state.iteration} 轮检索知识是否足以回答问题...`,
+          },
+          config,
+        );
+        const assessment = await this.evidenceAssessmentService.assessEvidence(
+          state.answerQuestion,
+          state.currentChunks,
+          state.acceptedChunks,
+          state.searchHistory,
+          state.retrievalSource,
+          this.webSearchService.isConfigured(),
+          state.analysis?.intent === QueryIntent.WEB
+            ? 'web_only'
+            : 'knowledge_with_web_fallback',
+        );
+        const usableIds = new Set(assessment.usableChunkIds);
+        const acceptedChunks = this.takeTopAccumulatedChunks(
+          this.mergeChunks(
+            state.acceptedChunks,
+            state.currentChunks.filter((chunk) => usableIds.has(chunk.chunkId)),
+          ),
           this.maxAccumulatedContextChunks,
         );
         this.emit(
           {
+            type: AguiEventType.EVIDENCE_ASSESSMENT,
+            timestamp: Date.now(),
+            verdict: assessment.verdict,
+            usableChunkIds: assessment.usableChunkIds,
+            coveredAspects: assessment.coveredAspects,
+            missingAspects: assessment.missingAspects,
+            shouldRetrieveMore: assessment.shouldContinue,
+            needsWebSearch: assessment.needsWebSearch,
+            nextSearchSource: assessment.nextSearchSource,
+            nextQuery: assessment.nextQuery,
+            webSearchQuery: assessment.webSearchQuery,
+            newSearchAspect: assessment.newSearchAspect,
+          },
+          config,
+        );
+
+        // 客户端只看到通过评审的累计证据，不展示被拒绝的原始召回片段。
+        this.emit(
+          {
             type: AguiEventType.RETRIEVAL_RESULT,
             timestamp: Date.now(),
-            chunks: chunks.map((chunk) => ({
+            chunks: acceptedChunks.map((chunk) => ({
               chunkId: chunk.chunkId,
               documentId: chunk.documentId,
               documentTitle: chunk.documentTitle,
               originalFileName: chunk.originalFileName,
               fileSize: chunk.fileSize,
-              content: `${chunk.content.substring(0, 200)}...`,
+              content:
+                chunk.content.substring(0, 200) +
+                (chunk.content.length > 200 ? '...' : ''),
               similarity: chunk.similarity,
+              sourceType: chunk.sourceType,
+              sourceUrl: chunk.sourceUrl,
             })),
           },
           config,
         );
-        return {
-          allChunks,
-          completedIterations: state.iteration,
-          context: { ...state.context, longTermMemories },
-        };
-      })
-      // 草稿保持在服务端，客户端只在最终节点收到选中的答案。
-      .addNode('generateDraft', async (state: AgentStateValue, config) => {
+
+        const nextSource = assessment.nextSearchSource;
+        const nextQuery =
+          nextSource === 'web'
+            ? assessment.webSearchQuery?.trim()
+            : assessment.nextQuery?.trim();
+        const canContinue = Boolean(
+          state.options.enableFollowUp !== false &&
+          assessment.shouldContinue &&
+          nextQuery &&
+          nextSource !== 'none' &&
+          state.iteration < state.maxIterations &&
+          this.isNovelRetrievalQuery(
+            nextQuery,
+            state.searchHistory,
+            nextSource,
+          ),
+        );
+        if (!canContinue) {
+          return {
+            evidenceAssessment: assessment,
+            acceptedChunks,
+            shouldContinue: false,
+          };
+        }
+
         this.emit(
           {
             type: AguiEventType.THINKING,
             timestamp: Date.now(),
-            content: `基于 ${state.allChunks.length} 个相关片段生成草稿并评估...`,
+            content:
+              nextSource === 'web'
+                ? `内部知识不足，联网搜索: "${nextQuery}"`
+                : `发现明确知识缺口，补充知识库检索: "${nextQuery}"`,
           },
           config,
         );
-
-        this.logger.verbose(`[langgraph][generateDraft]`);
-
-        // 完整 context 只经内部事件交给 run() 的 collector；SSE 仍只拿到截断摘要。
+        return {
+          evidenceAssessment: assessment,
+          acceptedChunks,
+          analysis: {
+            ...state.analysis!,
+            rewritten: nextQuery!,
+            // 补检索必须聚焦评审器指出的缺口，不再混入原始扩展查询。
+            expandedQueries: [],
+            entityTerms: [],
+          },
+          retrievalQuestion: nextQuery!,
+          retrievalSource: nextSource as RetrievalSource,
+          iteration: state.iteration + 1,
+          shouldContinue: true,
+        };
+      })
+      // 所有检索完成后只生成一次最终答案。
+      .addNode('generateFinal', async (state: AgentStateValue, config) => {
+        this.emit(
+          {
+            type: AguiEventType.THINKING,
+            timestamp: Date.now(),
+            content: state.acceptedChunks.length
+              ? `基于 ${state.acceptedChunks.length} 个有效知识片段生成回答...`
+              : '未找到可用知识，正在生成资料不足说明...',
+          },
+          config,
+        );
         this.emit(
           {
             type: AgentInternalEventType.GENERATION_CONTEXT,
             timestamp: Date.now(),
-            iteration: state.iteration,
-            chunks: state.allChunks,
+            iteration: state.completedIterations,
+            chunks: state.acceptedChunks,
           },
           config,
         );
@@ -502,22 +695,21 @@ export class AgentOrchestrator {
         const generate = () =>
           this.generationService.generate(
             state.answerQuestion,
-            state.allChunks,
+            state.acceptedChunks,
             state.context,
           );
-        const draft = isLangfuseTracingEnabled
+        const finalAnswer = isLangfuseTracingEnabled
           ? await startActiveObservation(
               'generate-answer',
               async (generationChain) => {
                 generationChain.update({
                   input: {
                     question: state.answerQuestion,
-                    context: state.allChunks,
+                    context: state.acceptedChunks,
                   },
                   metadata: {
-                    iteration: state.iteration,
-                    contextChunkCount: state.allChunks.length,
-                    // 仅记录数量，避免把用户长期记忆原文重复写入 trace。
+                    retrievalIterations: state.completedIterations,
+                    contextChunkCount: state.acceptedChunks.length,
                     longTermMemoryCount:
                       state.context.longTermMemories?.length ?? 0,
                   },
@@ -533,121 +725,20 @@ export class AgentOrchestrator {
                 });
                 return generated;
               },
-              // LangChain callback 已记录真实模型调用；这里作为其父级 chain，避免重复 generation。
               { asType: 'chain' },
             )
           : await generate();
-        return { draft };
+        return { finalAnswer };
       })
-      // 更新最佳草稿，并决定跳回 analyze 开始下一轮或进入 finalize。
-      .addNode('assessDraft', async (state: AgentStateValue, config) => {
-        const assessment = await this.draftAssessmentService.assessDraft(
-          state.answerQuestion,
-          state.draft!,
-          { retrievedChunkCount: state.allChunks.length },
-        );
-
-        // this.logger.verbose(
-        //   `[langgraph][draftAssessment] ${JSON.stringify(assessment, null, 2)}`,
-        // );
-
-        this.emit(
-          {
-            type: AguiEventType.DRAFT_ASSESSMENT,
-            timestamp: Date.now(),
-            answerRelevance: assessment.answerRelevance,
-            answerCompleteness: assessment.answerCompleteness,
-            shouldRetrieveMore: assessment.shouldRetrieveMore,
-            followUpQuestion: assessment.followUpQuestion,
-            missingAspects: assessment.missingAspects,
-            followUpQueries: assessment.followUpQueries,
-          },
-          config,
-        );
-        const currentDraftIsBest =
-          assessment.answerRelevance > state.bestRelevance;
-        const best = currentDraftIsBest ? state.draft! : state.bestAnswer!;
-        const bestContext = currentDraftIsBest
-          ? state.allChunks
-          : state.bestContext;
-        const canContinue =
-          state.options.enableFollowUp !== false &&
-          this.draftAssessmentService.shouldRetrieveMore(assessment) &&
-          state.iteration < state.maxIterations;
-        if (!canContinue)
-          return {
-            draftAssessment: assessment,
-            bestAnswer: best,
-            bestContext,
-            bestRelevance: Math.max(
-              state.bestRelevance,
-              assessment.answerRelevance,
-            ),
-            shouldContinue: false,
-          };
-        const normalizedCurrent = state.retrievalQuestion
-          .normalize('NFKC')
-          .toLocaleLowerCase();
-        const nextQuestion = [
-          ...assessment.followUpQueries,
-          assessment.followUpQuestion,
-          ...state.analysis!.expandedQueries,
-        ]
-          .filter((query): query is string => Boolean(query?.trim()))
-          .find((query) => {
-            const normalized = query
-              .trim()
-              .normalize('NFKC')
-              .toLocaleLowerCase();
-            return (
-              normalized !== normalizedCurrent &&
-              !normalizedCurrent.includes(normalized)
-            );
-          });
-        if (!nextQuestion)
-          return {
-            draftAssessment: assessment,
-            bestAnswer: best,
-            bestContext,
-            bestRelevance: Math.max(
-              state.bestRelevance,
-              assessment.answerRelevance,
-            ),
-            shouldContinue: false,
-          };
-        this.emit(
-          {
-            type: AguiEventType.THINKING,
-            timestamp: Date.now(),
-            content: assessment.followUpQuestion
-              ? `需要追问: "${nextQuestion}"`
-              : `使用扩展查询: "${nextQuestion}"`,
-          },
-          config,
-        );
-        return {
-          draftAssessment: assessment,
-          bestAnswer: best,
-          bestContext,
-          bestRelevance: Math.max(
-            state.bestRelevance,
-            assessment.answerRelevance,
-          ),
-          retrievalQuestion: nextQuestion,
-          iteration: state.iteration + 1,
-          shouldContinue: true,
-        };
-      })
-      // 复用最佳草稿并按 SSE 友好的片段输出；不额外调用模型。
+      // 将唯一一次生成的答案拆成 SSE 友好的片段输出。
       .addNode('finalize', async (state: AgentStateValue, config) => {
-        const answer = state.bestAnswer;
-        if (!answer) throw new Error('大模型未生成可返回的答案草稿。');
-        // 直接携带最佳草稿对应 context，避免以后 citations 只保留已引用子集时反推失败。
+        const answer = state.finalAnswer;
+        if (!answer) throw new Error('大模型未生成可返回的答案。');
         this.emit(
           {
             type: AgentInternalEventType.FINAL_GENERATION_CONTEXT,
             timestamp: Date.now(),
-            chunks: state.bestContext,
+            chunks: state.acceptedChunks,
           },
           config,
         );
@@ -663,6 +754,8 @@ export class AgentOrchestrator {
               fileSize: citation.fileSize,
               content: citation.chunkContent,
               similarity: citation.similarity,
+              sourceType: citation.sourceType,
+              sourceUrl: citation.sourceUrl,
             })),
           },
           config,
@@ -671,7 +764,7 @@ export class AgentOrchestrator {
           {
             type: AguiEventType.THINKING,
             timestamp: Date.now(),
-            content: `已选择最佳草稿，基于 ${answer.citations.length} 个相关片段返回答案...`,
+            content: `基于 ${answer.citations.length} 个有效知识片段返回答案...`,
           },
           config,
         );
@@ -704,21 +797,22 @@ export class AgentOrchestrator {
         'analyze',
         (state: AgentStateValue) =>
           !state.analysis!.needsRetrieval ||
-          state.analysis!.intent === QueryIntent.CHITCHAT
+          state.analysis!.intent === QueryIntent.CHITCHAT ||
+          state.analysis!.intent === QueryIntent.PERSONAL_PREFERENCE
             ? 'directGenerate'
             : 'retrieve',
         ['directGenerate', 'retrieve'],
       )
       .addEdge('directGenerate', END)
-      .addEdge('retrieve', 'generateDraft')
-      .addEdge('generateDraft', 'assessDraft')
-      // 质量不足且可继续时回到 analyze，否则输出当前最佳答案。
+      .addEdge('retrieve', 'assessEvidence')
+      // 有明确且新颖的知识缺口时最多再检索一次，否则进入唯一一次生成。
       .addConditionalEdges(
-        'assessDraft',
+        'assessEvidence',
         (state: AgentStateValue) =>
-          state.shouldContinue ? 'analyze' : 'finalize',
-        ['analyze', 'finalize'],
+          state.shouldContinue ? 'retrieve' : 'generateFinal',
+        ['retrieve', 'generateFinal'],
       )
+      .addEdge('generateFinal', 'finalize')
       .addEdge('finalize', END)
       .compile();
 
@@ -762,9 +856,10 @@ export class AgentOrchestrator {
           maxIterations: this.maxIterations,
           iteration: 1,
           completedIterations: 0,
-          allChunks: [],
-          bestContext: [],
-          bestRelevance: Number.NEGATIVE_INFINITY,
+          currentChunks: [],
+          acceptedChunks: [],
+          searchHistory: [],
+          retrievalSource: 'knowledge_base',
           shouldContinue: false,
         },
         {
@@ -774,13 +869,12 @@ export class AgentOrchestrator {
       );
       for await (const event of stream) yield event as AgentExecutionEvent;
     } catch (error) {
-      this.logger.error(
-        `Agentic RAG 流式查询失败 [${queryId}]: ${error.message}`,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Agentic RAG 流式查询失败 [${queryId}]: ${message}`);
       yield {
         type: AguiEventType.ERROR,
         timestamp: Date.now(),
-        message: error.message,
+        message,
       };
     }
   }

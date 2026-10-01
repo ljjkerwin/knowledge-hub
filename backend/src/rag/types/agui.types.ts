@@ -15,8 +15,8 @@ export enum AguiEventType {
   RETRIEVAL_START = 'retrieval_start', // 开始检索
   RETRIEVAL_RESULT = 'retrieval_result', // 检索结果
 
-  // 草稿运行时评审相关；用于决定是否继续检索，不代表最终质量真值。
-  DRAFT_ASSESSMENT = 'draft_assessment',
+  // 检索证据评审；用于筛选生成上下文并决定是否补检索。
+  EVIDENCE_ASSESSMENT = 'evidence_assessment',
 
   // 状态相关
   ERROR = 'error', // 错误
@@ -83,18 +83,24 @@ export interface AguiRetrievalResultEvent extends AguiEvent {
     fileSize?: string | null;
     content: string;
     similarity: number;
+    sourceType?: 'knowledge_base' | 'web';
+    sourceUrl?: string;
   }>;
 }
 
-// 草稿运行时评审事件
-export interface AguiDraftAssessmentEvent extends AguiEvent {
-  type: AguiEventType.DRAFT_ASSESSMENT;
-  answerRelevance: number;
-  answerCompleteness: number;
+// 检索证据评审事件
+export interface AguiEvidenceAssessmentEvent extends AguiEvent {
+  type: AguiEventType.EVIDENCE_ASSESSMENT;
+  verdict: 'sufficient' | 'partial' | 'irrelevant' | 'empty';
+  usableChunkIds: string[];
+  coveredAspects: string[];
+  missingAspects: string[];
   shouldRetrieveMore: boolean;
-  followUpQuestion?: string;
-  missingAspects?: string[];
-  followUpQueries?: string[];
+  needsWebSearch: boolean;
+  nextSearchSource: 'knowledge_base' | 'web' | 'none';
+  nextQuery?: string;
+  webSearchQuery?: string;
+  newSearchAspect?: string;
 }
 
 // 错误事件
@@ -130,7 +136,7 @@ export type AguiEventUnion =
   | AguiToolResultEvent
   | AguiRetrievalStartEvent
   | AguiRetrievalResultEvent
-  | AguiDraftAssessmentEvent
+  | AguiEvidenceAssessmentEvent
   | AguiErrorEvent
   | AguiDoneEvent
   | AguiMetadataEvent;

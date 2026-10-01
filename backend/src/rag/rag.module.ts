@@ -11,11 +11,12 @@ import { RerankerService } from './reranker.service';
 import { GenerationService } from './generation.service';
 import { PipelineModule } from '../pipeline/pipeline.module';
 import { QuestionAnalyzer } from './agent/question-analyzer.service';
-import { DraftAssessmentService } from './agent/answer-evaluator.service';
+import { EvidenceAssessmentService } from './agent/answer-evaluator.service';
 import { AgentOrchestrator } from './agent/agent-orchestrator.service';
 import { ConversationService } from './conversation.service';
 import { ContextManager } from './context-manager.service';
 import { LongTermMemoryService } from './long-term-memory.service';
+import { WebSearchService } from './web-search.service';
 import { ConversationEntity } from './entities/conversation.entity';
 import { MessageEntity } from './entities/message.entity';
 import { LlmModule } from '../llm/llm.module';
@@ -57,11 +58,12 @@ import { LlmModule } from '../llm/llm.module';
     RerankerService,
     GenerationService,
     QuestionAnalyzer,
-    DraftAssessmentService,
+    EvidenceAssessmentService,
     AgentOrchestrator,
     ConversationService,
     ContextManager,
     LongTermMemoryService,
+    WebSearchService,
   ],
   exports: [AgentOrchestrator, ConversationService],
 })

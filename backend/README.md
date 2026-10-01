@@ -43,6 +43,24 @@ LANGFUSE_TRACING_ENABLED=true
 
 Set it to `false` (or remove it) to disable reporting again.
 
+## Optional Bocha web search
+
+The RAG agent can switch from the internal knowledge base to Bocha Web Search
+when evidence assessment identifies a public or time-sensitive information gap.
+Internal and web searches share the same maximum of three retrieval attempts.
+
+```bash
+BOCHA_API_KEY=your-api-key
+# Optional defaults:
+BOCHA_BASE_URL=https://api.bocha.cn
+BOCHA_SEARCH_COUNT=5
+BOCHA_MAX_RESULT_CHARS=4000
+BOCHA_TIMEOUT_MS=8000
+RAG_MAX_ITERATIONS=3
+```
+
+Without `BOCHA_API_KEY`, evidence assessment will not select web search.
+
 ## Shared chunks and optional OCR
 
 Publishing a document now sends one `document.ingest` task. It performs the

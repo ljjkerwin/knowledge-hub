@@ -101,8 +101,12 @@ export async function main(argv = process.argv.slice(2)) {
       configuration: {
         model:
           process.env.LLM_MODEL_NAME ?? process.env.OPENAI_MODEL_NAME ?? null,
-        maxIterations: Number(process.env.RAG_MAX_ITERATIONS ?? 3),
+        maxIterations: Math.min(
+          3,
+          Math.max(1, Number(process.env.RAG_MAX_ITERATIONS ?? 3) || 3),
+        ),
         retrievalK,
+        webSearchEnabled: Boolean(process.env.BOCHA_API_KEY),
         llmJudgeEnabled: judgeEnabled,
       },
       summary: summarize(caseResults),
