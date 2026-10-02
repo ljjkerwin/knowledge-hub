@@ -91,6 +91,85 @@ describe('AgentOrchestrator retrieval query construction', () => {
 });
 
 describe('AgentOrchestrator evidence-first graph', () => {
+  it('does not recall long-term memories for simple chitchat', async () => {
+    const recall = jest.fn();
+    const generateDirectStream = jest.fn(function* () {
+      yield { type: 'token' as const, content: '你好！' };
+    });
+    const orchestrator = new AgentOrchestrator(
+      {
+        analyze: jest.fn().mockResolvedValue({
+          rewritten: '你好',
+          intent: QueryIntent.CHITCHAT,
+          expandedQueries: [],
+          entityTerms: [],
+          needsRetrieval: false,
+        }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { generateDirectStream } as never,
+      {} as never,
+      { recall } as never,
+      {} as never,
+      { get: jest.fn((_key: string, fallback: unknown) => fallback) } as never,
+    );
+
+    const result = await orchestrator.run({
+      question: '你好',
+      context: { history: [], conversationId: 'conversation-chitchat' },
+      userId: 'user-1',
+    });
+
+    expect(recall).not.toHaveBeenCalled();
+    expect(result.answer).toBe('你好！');
+    expect(result.completed).toBe(true);
+  });
+
+  it('recalls long-term memories for a personal identity question', async () => {
+    const recall = jest.fn().mockResolvedValue(['用户来自广东省']);
+    const generateDirectStream = jest.fn(function* (
+      _question: string,
+      context: { longTermMemories?: string[] },
+    ) {
+      yield {
+        type: 'token' as const,
+        content: context.longTermMemories?.[0] ?? '不知道',
+      };
+    });
+    const orchestrator = new AgentOrchestrator(
+      {
+        analyze: jest.fn().mockResolvedValue({
+          rewritten: '当前用户来自哪里？',
+          intent: QueryIntent.PERSONAL_PREFERENCE,
+          expandedQueries: [],
+          entityTerms: [],
+          needsRetrieval: false,
+        }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { generateDirectStream } as never,
+      {} as never,
+      { recall } as never,
+      {} as never,
+      { get: jest.fn((_key: string, fallback: unknown) => fallback) } as never,
+    );
+
+    const result = await orchestrator.run({
+      question: '我是哪里人？',
+      context: { history: [], conversationId: 'conversation-personal' },
+      userId: 'user-1',
+    });
+
+    expect(recall).toHaveBeenCalledWith('user-1', '当前用户来自哪里？');
+    expect(result.answer).toBe('用户来自广东省');
+  });
+
   it('starts a web-classified question directly with web search', async () => {
     const webChunk = {
       ...createChunk('web-news', '这是今天发布的公开消息。'),

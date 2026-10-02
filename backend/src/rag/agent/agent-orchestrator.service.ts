@@ -455,16 +455,17 @@ export class AgentOrchestrator {
 
         this.logger.verbose(`[langgraph][directGenerate]`);
 
-        const longTermMemories = state.userId
-          ? await this.longTermMemoryService.recall(
-              state.userId,
-              state.answerQuestion,
-            )
-          : [];
+        const longTermMemories =
+          state.userId &&
+          state.analysis?.intent === QueryIntent.PERSONAL_PREFERENCE
+            ? await this.longTermMemoryService.recall(
+                state.userId,
+                state.answerQuestion,
+              )
+            : [];
 
-        // log处长期记忆
         this.logger.verbose(
-          `[longTermMemories] ${state.answerQuestion} : ${longTermMemories.join(' | ')}`,
+          `[longTermMemories] 召回完成：${longTermMemories.length} 条`,
         );
 
         const context = { ...state.context, longTermMemories };
@@ -517,8 +518,8 @@ export class AgentOrchestrator {
           },
           config,
         );
-        // 首轮问题改写完成后，同时检索知识库与 Mem0。后续补充检索复用
-        // 已召回的长期记忆，并且不再混入原始 query，避免重复召回。
+        // 首轮知识库问题在检索的同时召回 Mem0；网页问题不混入长期记忆。
+        // 后续补充检索复用已有记忆，且不再混入原始 query，避免重复召回。
         const [chunks, longTermMemories] = await Promise.all([
           state.retrievalSource === 'web'
             ? this.webSearchService.search(query)
@@ -527,7 +528,9 @@ export class AgentOrchestrator {
                 analysis.strategy!,
                 state.iteration === 1 ? state.originalQuestion : undefined,
               ),
-          state.iteration === 1 && state.userId
+          state.iteration === 1 &&
+          state.userId &&
+          state.analysis?.intent === QueryIntent.KNOWLEDGE_BASE
             ? this.longTermMemoryService.recall(
                 state.userId,
                 state.answerQuestion,

@@ -356,10 +356,7 @@ export class RagController {
             void this.longTermMemoryService.remember(
               req.user.id,
               conversationId,
-              [
-                { role: 'user', content: dto.message },
-                { role: 'assistant', content: answerText },
-              ],
+              dto.message,
             );
           } catch (error) {
             const message =
