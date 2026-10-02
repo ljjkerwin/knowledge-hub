@@ -5,6 +5,11 @@ import { RetrievedChunk, Citation, GeneratedAnswer } from './types/rag.types';
 import { LlmService } from '../llm/llm.service';
 import type { ConversationContext } from './context-manager.service';
 
+export interface GenerationToken {
+  type: 'token';
+  content: string;
+}
+
 @Injectable()
 export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
@@ -14,39 +19,37 @@ export class GenerationService {
     this.llm = this.llmService.create();
   }
 
-  /**
-   * 生成答案
-   */
-  async generate(
+  /** 流式生成知识库回答；生成器结束时返回完整答案和引用。 */
+  async *generateStream(
     query: string,
     context: RetrievedChunk[],
     conversationContext?: ConversationContext,
-  ): Promise<GeneratedAnswer> {
+  ): AsyncGenerator<GenerationToken, GeneratedAnswer> {
     try {
-      // 1. 构建引用列表
       const citations = this.buildCitations(context);
-
-      // 2. 构建 prompt
       const prompt = this.buildPrompt(
         query,
         context,
         citations,
         conversationContext,
       );
-
-      // 3. 调用 LLM
-      const response = await this.llm.invoke([
+      const stream = await this.llm.stream([
         new SystemMessage(this.getSystemPrompt()),
         new HumanMessage(prompt),
       ]);
+      let answer = '';
 
-      // 4. 解析响应
-      const answer = response.content as string;
+      for await (const chunk of stream) {
+        if (typeof chunk.content !== 'string' || !chunk.content) continue;
+        answer += chunk.content;
+        yield { type: 'token', content: chunk.content };
+      }
+
       this.logger.log('答案生成完成：' + answer);
       return { answer, citations };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`答案生成失败: ${message}`);
+      this.logger.error(`答案流式生成失败: ${message}`);
       throw error;
     }
   }

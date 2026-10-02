@@ -64,10 +64,11 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
               isUser ? "bg-primary text-primary-foreground" : "bg-card"
             }`}
           >
-            <MarkdownContent content={content} citations={citations} />
-            {isStreaming && !isUser && (
-              <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-primary" />
-            )}
+            <MarkdownContent
+              content={content}
+              citations={citations}
+              showCursor={isStreaming && !isUser}
+            />
           </div>
         )}
 

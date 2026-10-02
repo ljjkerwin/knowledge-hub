@@ -70,7 +70,6 @@ const AgentState = Annotation.Root({
   searchHistory: Annotation<SearchAttempt[]>,
   retrievalSource: Annotation<RetrievalSource>,
   evidenceAssessment: Annotation<EvidenceAssessment | undefined>,
-  finalAnswer: Annotation<GeneratedAnswer | undefined>,
   shouldContinue: Annotation<boolean>,
 });
 
@@ -89,7 +88,6 @@ export class AgentOrchestrator {
   private readonly maxIterations: number;
   /** 跨轮检索结果累计后，允许进入生成上下文的最大片段数。 */
   private readonly maxAccumulatedContextChunks: number;
-  private readonly simulatedStreamChunkIntervalMs: number;
   private readonly graph: ReturnType<AgentOrchestrator['buildGraph']>;
 
   constructor(
@@ -113,12 +111,6 @@ export class AgentOrchestrator {
     this.maxAccumulatedContextChunks = Number(
       this.config.get('RAG_MAX_CONTEXT_CHUNKS', 12),
     );
-    const configuredInterval = Number(
-      this.config.get('RAG_SIMULATED_STREAM_CHUNK_INTERVAL_MS', 80),
-    );
-    this.simulatedStreamChunkIntervalMs = Number.isFinite(configuredInterval)
-      ? Math.max(0, configuredInterval)
-      : 80;
     this.graph = this.buildGraph();
   }
 
@@ -678,8 +670,8 @@ export class AgentOrchestrator {
           shouldContinue: true,
         };
       })
-      // 所有检索完成后只生成一次最终答案。
-      .addNode('generateFinal', async (state: AgentStateValue, config) => {
+      // 所有检索完成后只生成一次最终答案，并直接向客户端流式输出。
+      .addNode('generate', async (state: AgentStateValue, config) => {
         this.emit(
           {
             type: AguiEventType.THINKING,
@@ -708,12 +700,25 @@ export class AgentOrchestrator {
           config,
         );
 
-        const generate = () =>
-          this.generationService.generate(
+        const generate = async (): Promise<GeneratedAnswer> => {
+          const stream = this.generationService.generateStream(
             state.answerQuestion,
             state.acceptedChunks,
             state.context,
           );
+          while (true) {
+            const chunk = await stream.next();
+            if (chunk.done) return chunk.value;
+            this.emit(
+              {
+                type: AguiEventType.TEXT,
+                timestamp: Date.now(),
+                content: chunk.value.content,
+              },
+              config,
+            );
+          }
+        };
         const finalAnswer = isLangfuseTracingEnabled
           ? await startActiveObservation(
               'generate-answer',
@@ -744,12 +749,7 @@ export class AgentOrchestrator {
               { asType: 'chain' },
             )
           : await generate();
-        return { finalAnswer };
-      })
-      // 将唯一一次生成的答案拆成 SSE 友好的片段输出。
-      .addNode('finalize', async (state: AgentStateValue, config) => {
-        const answer = state.finalAnswer;
-        if (!answer) throw new Error('大模型未生成可返回的答案。');
+
         this.emit(
           {
             type: AgentInternalEventType.FINAL_GENERATION_CONTEXT,
@@ -762,7 +762,7 @@ export class AgentOrchestrator {
           {
             type: AguiEventType.RETRIEVAL_RESULT,
             timestamp: Date.now(),
-            chunks: answer.citations.map((citation) => ({
+            chunks: finalAnswer.citations.map((citation) => ({
               chunkId: citation.chunkId,
               documentId: citation.documentId,
               documentTitle: citation.documentTitle,
@@ -776,25 +776,6 @@ export class AgentOrchestrator {
           },
           config,
         );
-        this.emit(
-          {
-            type: AguiEventType.THINKING,
-            timestamp: Date.now(),
-            content: `基于 ${answer.citations.length} 个有效知识片段返回答案...`,
-          },
-          config,
-        );
-        const chunks = this.splitAnswerForStreaming(answer.answer);
-        for (const [index, content] of chunks.entries()) {
-          this.emit(
-            { type: AguiEventType.TEXT, timestamp: Date.now(), content },
-            config,
-          );
-          if (index < chunks.length - 1 && this.simulatedStreamChunkIntervalMs)
-            await new Promise<void>((resolve) =>
-              setTimeout(resolve, this.simulatedStreamChunkIntervalMs),
-            );
-        }
         this.emit(
           {
             type: AguiEventType.DONE,
@@ -821,15 +802,14 @@ export class AgentOrchestrator {
       )
       .addEdge('directGenerate', END)
       .addEdge('retrieve', 'assessEvidence')
-      // 有明确且新颖的知识缺口时最多再检索一次，否则进入唯一一次生成。
+      // 有明确且新颖的知识缺口且仍有共享轮次预算时继续检索，否则生成答案。
       .addConditionalEdges(
         'assessEvidence',
         (state: AgentStateValue) =>
-          state.shouldContinue ? 'retrieve' : 'generateFinal',
-        ['retrieve', 'generateFinal'],
+          state.shouldContinue ? 'retrieve' : 'generate',
+        ['retrieve', 'generate'],
       )
-      .addEdge('generateFinal', 'finalize')
-      .addEdge('finalize', END)
+      .addEdge('generate', END)
       .compile();
 
     // graph.getGraphAsync().then(drawable => {
@@ -911,8 +891,16 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Agentic RAG 的 SSE/AGUI 适配层。
-   * 会话 metadata 属于传输协议；实际执行完全委托给 runEvents()。
+   * Agentic RAG 的 SSE/AGUI 入口，流程如下：
+   *
+   * 1. 从传输层输入中剥离 conversationId，并确定本次执行的 queryId；
+   * 2. 先发送 metadata，供客户端关联会话、查询和最大迭代次数；
+   * 3. 将其余输入交给 runEvents()，沿 LangGraph 执行：
+   *    analyze → directGenerate，或
+   *    analyze → (retrieve → assessEvidence)×N → generate；
+   * 4. 转发公开的 AGUI 事件，并拦截仅供离线评估使用的内部事件。
+   *
+   * 本方法只适配传输协议，不负责会话持久化和 Agent 业务决策。
    */
   async *queryStream(input: QueryStreamInput): AsyncGenerator<AguiEventUnion> {
     const { conversationId, ...runInput } = input;
@@ -932,32 +920,6 @@ export class AgentOrchestrator {
       // 禁止把完整知识库片段下发给 SSE 客户端。
       if (!isInternalAgentEvent(event)) yield event;
     }
-  }
-
-  /** 将已生成答案拆为适合 SSE 逐步展示的片段，优先保留段落和句子边界。 */
-  private splitAnswerForStreaming(answer: string, maxLength = 100): string[] {
-    const chunks: string[] = [];
-    let remaining = answer;
-
-    while (remaining.length > maxLength) {
-      const boundary = Math.max(
-        remaining.lastIndexOf('\n\n', maxLength),
-        remaining.lastIndexOf('\n', maxLength),
-        remaining.lastIndexOf('。', maxLength),
-        remaining.lastIndexOf('！', maxLength),
-        remaining.lastIndexOf('？', maxLength),
-      );
-      const splitAt =
-        boundary < maxLength / 2
-          ? maxLength
-          : boundary + (remaining.startsWith('\n\n', boundary) ? 2 : 1);
-
-      chunks.push(remaining.slice(0, splitAt));
-      remaining = remaining.slice(splitAt);
-    }
-
-    if (remaining) chunks.push(remaining);
-    return chunks;
   }
 
   /**

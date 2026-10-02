@@ -116,21 +116,25 @@ describe('AgentOrchestrator evidence-first graph', () => {
       nextSearchSource: 'none',
       reasoning: '网页证据充足。',
     });
-    const generate = jest.fn().mockResolvedValue({
-      answer: '这是今天的公开消息。[1]',
-      citations: [
-        {
-          index: 1,
-          chunkId: webChunk.chunkId,
-          documentId: webChunk.documentId,
-          documentTitle: webChunk.documentTitle,
-          chunkContent: webChunk.content,
-          heading: null,
-          similarity: webChunk.similarity,
-          sourceType: 'web',
-          sourceUrl: webChunk.sourceUrl,
-        },
-      ],
+    const generateStream = jest.fn(function* () {
+      const answer = '这是今天的公开消息。[1]';
+      yield { type: 'token' as const, content: answer };
+      return {
+        answer,
+        citations: [
+          {
+            index: 1,
+            chunkId: webChunk.chunkId,
+            documentId: webChunk.documentId,
+            documentTitle: webChunk.documentTitle,
+            chunkContent: webChunk.content,
+            heading: null,
+            similarity: webChunk.similarity,
+            sourceType: 'web' as const,
+            sourceUrl: webChunk.sourceUrl,
+          },
+        ],
+      };
     });
     const orchestrator = new AgentOrchestrator(
       { analyze } as never,
@@ -138,14 +142,12 @@ describe('AgentOrchestrator evidence-first graph', () => {
       { search: jest.fn() } as never,
       { fuse: jest.fn() } as never,
       { getCandidateLimit: jest.fn(), rerank: jest.fn() } as never,
-      { generate } as never,
+      { generateStream } as never,
       { assessEvidence } as never,
       { recall: jest.fn().mockResolvedValue([]) } as never,
       { search: webSearch, isConfigured: jest.fn(() => true) } as never,
       {
-        get: jest.fn((key: string, fallback: unknown) =>
-          key === 'RAG_SIMULATED_STREAM_CHUNK_INTERVAL_MS' ? 0 : fallback,
-        ),
+        get: jest.fn((_key: string, fallback: unknown) => fallback),
       } as never,
     );
 
@@ -161,7 +163,9 @@ describe('AgentOrchestrator evidence-first graph', () => {
     expect(result.retrievalAttempts).toEqual([
       { query: '今天的公开消息是什么？', searchType: 'web' },
     ]);
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.answer).toBe('这是今天的公开消息。[1]');
+    expect(result.completed).toBe(true);
+    expect(generateStream).toHaveBeenCalledTimes(1);
   });
 
   it('shares a three-attempt budget across knowledge and web search, then generates once', async () => {
@@ -227,17 +231,22 @@ describe('AgentOrchestrator evidence-first graph', () => {
         nextSearchSource: 'none',
         reasoning: '累计证据已经完整。',
       });
-    const generate = jest.fn().mockResolvedValue({
-      answer: 'A 和 B 的审批流程不同。[1][2]',
-      citations: [firstChunk, secondChunk, webChunk].map((chunk, index) => ({
-        index: index + 1,
-        chunkId: chunk.chunkId,
-        documentId: chunk.documentId,
-        documentTitle: chunk.documentTitle,
-        chunkContent: chunk.content,
-        heading: chunk.heading,
-        similarity: chunk.similarity,
-      })),
+    const generateStream = jest.fn(function* () {
+      const answer = 'A 和 B 的审批流程不同。[1][2]';
+      yield { type: 'token' as const, content: 'A 和 B 的审批流程' };
+      yield { type: 'token' as const, content: '不同。[1][2]' };
+      return {
+        answer,
+        citations: [firstChunk, secondChunk, webChunk].map((chunk, index) => ({
+          index: index + 1,
+          chunkId: chunk.chunkId,
+          documentId: chunk.documentId,
+          documentTitle: chunk.documentTitle,
+          chunkContent: chunk.content,
+          heading: chunk.heading,
+          similarity: chunk.similarity,
+        })),
+      };
     });
     const webSearch = jest.fn().mockResolvedValue([webChunk]);
 
@@ -254,14 +263,12 @@ describe('AgentOrchestrator evidence-first graph', () => {
         getCandidateLimit: jest.fn((topK: number) => topK),
         rerank: jest.fn((_query: string, chunks: RetrievedChunk[]) => chunks),
       } as never,
-      { generate } as never,
+      { generateStream } as never,
       { assessEvidence } as never,
       { recall: jest.fn().mockResolvedValue([]) } as never,
       { search: webSearch, isConfigured: jest.fn(() => true) } as never,
       {
-        get: jest.fn((key: string, fallback: unknown) =>
-          key === 'RAG_SIMULATED_STREAM_CHUNK_INTERVAL_MS' ? 0 : fallback,
-        ),
+        get: jest.fn((_key: string, fallback: unknown) => fallback),
       } as never,
     );
 
@@ -276,13 +283,15 @@ describe('AgentOrchestrator evidence-first graph', () => {
     expect(vectorSearch).toHaveBeenCalledTimes(2);
     expect(webSearch).toHaveBeenCalledTimes(1);
     expect(assessEvidence).toHaveBeenCalledTimes(3);
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generateStream).toHaveBeenCalledTimes(1);
     expect(result.retrievalQueries).toEqual([
       'A 和 B 的审批流程有什么区别？',
       'B 的审批节点和审批人',
       'A B 审批流程 最新监管要求',
     ]);
     expect(result.totalIterations).toBe(3);
+    expect(result.answer).toBe('A 和 B 的审批流程不同。[1][2]');
+    expect(result.completed).toBe(true);
     expect(result.finalGenerationContext.map((chunk) => chunk.chunkId)).toEqual(
       ['chunk-a', 'chunk-b', 'web-current'],
     );
